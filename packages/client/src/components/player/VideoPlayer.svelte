@@ -348,7 +348,6 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    flex: 1;
   }
 
   .player-header {
@@ -790,8 +789,8 @@
       font-size: 0.9rem;
     }
 
-    .audio-layout {
-      flex-direction: column;
+    .player-main.audio-layout {
+      display: contents;
     }
 
     .audio-left {
@@ -821,6 +820,7 @@
       border-top: 1px solid rgba(255, 255, 255, 0.05);
       flex: 1;
       min-height: 0;
+      overflow: hidden;
     }
 
     .visual-section {
