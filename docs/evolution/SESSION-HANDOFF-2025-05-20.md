@@ -4,16 +4,22 @@
 
 | 服务 | 地址 | 状态 |
 |------|------|------|
-| 后端 | http://localhost:3000 | 需手动启动 |
-| 前端 | http://localhost:5173 | 需手动启动 |
+| 后端 | http://localhost:3000 | 运行中 (production) |
+| 前端 | `packages/client/dist/` | 已 build |
 
-**启动命令：**
+**启动命令（dev）：**
 ```bash
 # 后端
 cd packages/server && bun --watch src/index.ts
 
 # 前端（另开终端）
 cd packages/client && bunx vite --host
+```
+
+**Build 命令：**
+```bash
+cd packages/client && bunx vite build
+cd packages/server && bun src/index.ts
 ```
 
 ---
@@ -110,9 +116,53 @@ if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext
 - 虚拟容器添加 `role="list"` + `aria-label`
 - 进度条添加 `role="slider"` + `aria-valuenow/max` + 键盘事件
 
+### 9. 播放列表系统
+
+**新增** `packages/client/src/lib/player/playlist.ts` — `PlaylistManager` 单例：
+- 按类型分离播放列表（audio/video 分开）
+- 三种播放模式：`loop`（顺序）、`shuffle`（加权随机）、`repeat-one`
+- shuffle 模式：已播放权重 0.05，未播放权重 1.0，一轮结束后自动重置
+- `setPlaylist(items, startIndex)` / `next()` / `prev()` / `toggleMode()`
+
+**前端集成：**
+- `App.svelte`：`playMode = $state(playlistManager.mode)` 实时同步
+- `VideoPlayer.svelte`：音频/视频控制栏均显示播放模式按钮
+- `handleEnded()`：`repeat-one` 重播当前，否则 `onNext()`
+
+### 10. 智能续播
+
+**移除 resume toast**（用户反馈干扰体验）。
+
+**新行为：**
+- 手动点击卡片播放 → 若保存进度 > 10 秒，自动 seek 到该位置
+- 自动切歌（`onNext`/`onPrev`/`handleEnded`）→ 从头开始播放
+- `isAutoPlay` 状态区分手动/自动触发
+
+### 11. 歌词高亮优化
+
+- 桌面端 active line：`transform: scale(1.1)` + `text-shadow`
+- 移动端 active line：仅 `text-shadow`（去掉 scale，防止溢出被裁）
+- 移除 `mask-image` 渐变（避免边缘淡出）
+
 ---
 
-## 关键已知问题
+## 关键已知问题（未修复）
+
+### 移动端音频播放器歌词区域高度 Bug
+
+**现象：** 移动端音频播放器中，当前高亮歌词行（active line）被播放控件面板（`.audio-left`）遮挡，显示位置过低。
+
+**根因：** `.audio-left`（封面+进度条+播放控件）和 `.lyrics-section`（歌词）被包裹在同一个 `.player-main` flex 容器内。即使使用 flex/grid 分配空间，LyricsOverlay 内部的 auto-scroll 仍会将 active line 滚动到歌词容器的垂直中间。当歌词容器本身就在屏幕下半部分时，active line 的位置会过低，视觉上像是被播放控件"挡住"。
+
+**已尝试的方案（均未生效）：**
+1. `.player-content flex: 1` + `.lyrics-section flex: 1` — 标准 flex 填充，但嵌套 flex 高度计算不可靠
+2. JS ResizeObserver 精确计算 `.lyrics-section` 高度 — 计算正确但无法解决 auto-scroll 偏移问题
+3. `.player-main.audio-layout display: contents` — 让子元素直接参与 `.player-content` 的 flex 布局，但未达到预期效果
+
+**正确的修复方向（推测）：**
+- **方案 A：** 调整 LyricsOverlay 的 auto-scroll 偏移量。在移动端，active line 不应滚动到容器正中间，而应滚动到容器的偏上位置（如 20-30% 处）。这样即使歌词容器在屏幕下半部分，active line 也会显示得更高。
+- **方案 B：** 将 `.audio-left` 从 `.player-main` 中移出，放到 `.player-content` 中作为独立 flex item，`.player-main` 只包含 `.lyrics-section`。这需要修改 DOM 结构和对应的桌面端布局。
+- **方案 C：** 给 `.lyrics-section` 设置一个 `max-height` 上限，确保歌词容器不会太大，从而让 active line 的"中间位置"更靠上。
 
 ### Bun ReadableStream 二进制损坏（Windows）
 
@@ -124,6 +174,7 @@ if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext
 
 ## 待办 / 后续可优化
 
+- [ ] **移动端歌词高度 Bug** — 见上方"已知问题"
 - [ ] 视频播放未在浏览器中实际验证（只验证了音频）
 - [ ] 歌词同步滚动效果可进一步优化
 - [ ] 播放器关闭时的进度保存可添加重试逻辑
@@ -138,11 +189,15 @@ if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext
 
 ### 新增
 - `packages/client/src/components/MediaCard.svelte`
-- `packages/client/src/components/Icon.svelte`（新增 pause/volume/menu 图标）
+- `packages/client/src/components/Icon.svelte`
+- `packages/client/src/lib/api.ts`
+- `packages/client/src/lib/format.ts`
+- `packages/client/src/lib/player/playlist.ts`
 
 ### 修改（按重要性排序）
-- `packages/client/src/App.svelte` — 虚拟滚动 + 移动端适配
-- `packages/client/src/components/player/VideoPlayer.svelte` — 音频UI重构 + seek修复
+- `packages/client/src/App.svelte` — 虚拟滚动 + 移动端适配 + 播放列表集成
+- `packages/client/src/components/player/VideoPlayer.svelte` — 音频UI重构 + seek修复 + 播放模式 + 智能续播
+- `packages/client/src/components/player/LyricsOverlay.svelte` — 歌词高亮优化
 - `packages/server/src/streaming/transcode-pipeline.ts` — 音频转码 `-ss` 位置修复
 - `packages/client/src/lib/api.ts` — 动态局域网IP
 - `packages/server/src/scanner/engine.ts` — 文件类型白名单

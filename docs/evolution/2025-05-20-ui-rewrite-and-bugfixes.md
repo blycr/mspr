@@ -2,7 +2,7 @@
 
 ## Summary
 
-Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio playback failures, improved ffmpeg detection on Windows, and simplified the UI.
+Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio playback failures, improved ffmpeg detection on Windows, simplified the UI, added playlist system with play modes, and optimized lyrics display.
 
 ---
 
@@ -82,7 +82,9 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - **Error handling:** `handleVideoError` now inspects `MediaError.code` and shows specific messages (network/decode/format) instead of a generic catch-all.
 - **Progress save:** Close button now `await`s `saveProgress()` before calling `onClose()`.
 - **Loading state:** Added explicit `isLoading` state to avoid showing the video element before `src` is ready.
-- **Resume toast:** Button label changed from "Dismiss" to "From Start" for clarity.
+- **Resume toast removed:** Smart resume behavior — manual click auto-seeks to saved progress (>10s), auto-advance starts from beginning.
+- **Play modes:** Added mode button with `shuffle`/`repeat` icons, cycling through loop/shuffle/repeat-one.
+- **Playlist controls:** Added prev/next buttons in audio control bar and video header.
 
 ### 3. App.svelte Overhaul
 
@@ -99,10 +101,47 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
   - Simplified loading text: "Indexing your high-fidelity collection..." → "Loading..."
   - Simplified pagination button: "Discover More" → "Load More"
   - Search placeholder shortened
+- **Playlist integration:** `handleCardClick` builds kind-specific playlist, `handleNext`/`handlePrev` advance with `isAutoPlay` flag.
 
 ### 4. LyricsOverlay Fix
 
 - Replaced hardcoded `http://localhost:3000` with `api.baseUrl`.
+- Desktop active line: `transform: scale(1.1)` + `text-shadow`.
+- Mobile active line: `text-shadow` only (removed scale to prevent overflow clipping).
+- Removed `mask-image` gradient to avoid edge fade-out masking.
+- Padding: `60px 20px` for breathing room.
+
+### 5. Playlist System — `src/lib/player/playlist.ts`
+
+**New:** `PlaylistManager` singleton with per-kind playback lists:
+- `setPlaylist(items, startIndex)` — initializes list, resets round tracking
+- `next()` — weighted random selection for shuffle mode (played=0.05, unplayed=1.0, auto-reshuffle when round completes)
+- `prev()` — decrements index with wrap
+- `toggleMode()` — cycles loop → shuffle → repeat-one
+- `mode` state synced to `App.svelte` via `$state`
+
+### 6. Smart Resume
+
+- Removed resume toast UI (user feedback: too intrusive).
+- Manual click on card → auto-seeks to saved progress if > 10 seconds.
+- Auto-advance (`onNext`/`onPrev`/`handleEnded`) → starts from beginning.
+
+---
+
+## Known Issues (Unresolved)
+
+### Mobile Audio Player Lyrics Height Bug
+
+**Status:** Attempted multiple fixes, none fully resolved.
+
+**Symptom:** On mobile audio player, the currently highlighted lyric line (active line) appears too low on screen, visually "blocked" by the playback controls panel (`.audio-left`).
+
+**Attempted fixes:**
+1. `flex: 1` chain on `.player-content` and `.lyrics-section`
+2. JS ResizeObserver calculating exact remaining height
+3. `display: contents` on `.player-main.audio-layout` to let children participate in parent flex layout directly
+
+**Likely correct approach:** Adjust LyricsOverlay auto-scroll offset on mobile so active line scrolls to upper portion of container (e.g., 20-30% from top) instead of exact center. Alternatively, restructure DOM so `.audio-left` is a sibling of `.player-main` rather than a child.
 
 ---
 
@@ -110,9 +149,12 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 
 ### New
 - `packages/client/src/components/Icon.svelte`
+- `packages/client/src/components/MediaCard.svelte`
 - `packages/client/src/lib/api.ts`
 - `packages/client/src/lib/format.ts`
+- `packages/client/src/lib/player/playlist.ts`
 - `docs/evolution/2025-05-20-ui-rewrite-and-bugfixes.md`
+- `docs/evolution/SESSION-HANDOFF-2025-05-20.md`
 
 ### Modified
 - `packages/client/src/App.svelte`
@@ -120,7 +162,7 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - `packages/client/src/components/player/LyricsOverlay.svelte`
 - `packages/client/src/lib/player/engine.ts`
 - `packages/client/src/app.css`
-- `packages/client/src/styles/tokens.css` (unchanged, still active)
+- `packages/client/src/styles/tokens.css`
 - `packages/server/src/streaming/transcode-pipeline.ts`
 - `packages/server/src/streaming/hw-accel-detector.ts`
 - `packages/server/src/streaming/thumbnail-generator.ts`
@@ -129,7 +171,6 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - `packages/server/src/index.ts`
 - `packages/server/src/scanner/engine.ts`
 - `packages/shared/src/constants/extensions.ts`
-- `packages/shared/src/constants/extensions.ts` (type import fix)
 - `AGENTS.md`
 
 ### Deleted
