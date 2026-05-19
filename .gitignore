@@ -1,48 +1,30 @@
 # Logs
+logs
 *.log
-server.log
-data/*.log
-
-# Runtime data & Local databases
-packages/server/data/mspr.db
-packages/server/data/mspr.db-journal
-packages/server/data/mspr.db-wal
-packages/server/data/mspr.db-shm
-packages/server/data/thumbnails/*
-packages/server/data/config.json
-
-# If data folder holds all dynamic local files, ignore everything except templates
-# packages/server/data/*
-# !packages/server/data/config.json.template
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun.lockb
 
 # Dependency directories
 node_modules/
-/node_modules
-packages/*/node_modules
 
-# Build outputs & Bundles
+# Build outputs
 dist/
-/dist
-packages/client/dist/
-packages/server/static/dist/
-packages/server/static/*
-# Keep index.html or empty directories if needed
-!packages/server/static/.gitkeep
+static/
 
-# IDE / Editor configurations
+# IDE
 .vscode/
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
+*.swo
 
-# OS metadata
+# OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Environment variables
-.env
-.env.local
-.env.*.local
+# Local data
+packages/server/data/mspr.db
+packages/server/data/thumbnails/
+packages/server/data/config.json

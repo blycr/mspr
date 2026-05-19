@@ -1,0 +1,45 @@
+:root {
+  /* HSL Color System */
+  --hue: 220;
+  --saturation: 15%;
+  
+  --bg-color: hsl(var(--hue), var(--saturation), 5%);
+  --surface-color: hsl(var(--hue), var(--saturation), 10%);
+  --surface-hover: hsl(var(--hue), var(--saturation), 15%);
+  
+  --text-primary: hsl(var(--hue), 10%, 95%);
+  --text-secondary: hsl(var(--hue), 5%, 70%);
+  --text-dim: hsl(var(--hue), 5%, 50%);
+  
+  --accent-color: hsl(250, 70%, 60%);
+  --accent-hover: hsl(250, 70%, 70%);
+  
+  /* Glassmorphism */
+  --glass-bg: hsla(var(--hue), var(--saturation), 15%, 0.7);
+  --glass-border: hsla(var(--hue), 10%, 100%, 0.1);
+  --glass-blur: blur(12px);
+  
+  /* Spacing & Radius */
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --gap-lg: 24px;
+  --gap-md: 16px;
+  --gap-sm: 8px;
+
+  /* Transitions */
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}

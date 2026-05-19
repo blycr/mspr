@@ -1,0 +1,15 @@
+{
+  "name": "mspr",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "bun --filter @mspr/server dev",
+    "dev:client": "bun --filter @mspr/client dev",
+    "build": "bun --filter \"*\" build"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
