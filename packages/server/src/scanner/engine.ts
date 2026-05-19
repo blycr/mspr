@@ -6,31 +6,30 @@ import { configManager } from '../config/manager.js';
 import db from '../db/sqlite.js';
 
 export class ScannerEngine {
-  private config = configManager.get();
-
   public async scanAll() {
-    console.log('Starting full scan...');
+    const config = configManager.get();
+    console.log('[Scanner] Starting full scan...');
     const allItems: MediaItem[] = [];
     
-    for (const share of this.config.shares) {
+    for (const share of config.shares) {
       if (fs.existsSync(share.path)) {
-        this.scanDir(share.path, '', share.label, allItems);
+        this.scanDir(share.path, '', share.label, allItems, config);
       }
     }
 
     this.associateSidecars(allItems);
     this.saveToDb(allItems);
-    console.log(`Scan complete. Found ${allItems.length} items with sidecar associations.`);
+    console.log(`[Scanner] Complete. Found ${allItems.length} items.`);
   }
 
-  private scanDir(basePath: string, relPath: string, shareLabel: string, results: MediaItem[]) {
+  private scanDir(basePath: string, relPath: string, shareLabel: string, results: MediaItem[], config: any) {
     const currentPath = path.join(basePath, relPath);
     const entries = fs.readdirSync(currentPath, { withFileTypes: true });
 
     for (const entry of entries) {
       const entryRelPath = path.join(relPath, entry.name);
       
-      if (this.config.scanner.excludeNames.some(name => 
+      if (config.scanner.excludeNames.some(name => 
         entry.name.toLowerCase() === name.toLowerCase() || 
         (name.startsWith('/') && name.endsWith('/') && new RegExp(name.slice(1, -1), 'i').test(entry.name))
       )) {
@@ -38,16 +37,22 @@ export class ScannerEngine {
       }
 
       if (entry.isDirectory()) {
-        this.scanDir(basePath, entryRelPath, shareLabel, results);
+        this.scanDir(basePath, entryRelPath, shareLabel, results, config);
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).slice(1).toLowerCase();
-        if (this.config.scanner.excludeExts.includes(ext)) continue;
+        if (config.scanner.excludeExts.includes(ext)) continue;
 
         const stats = fs.statSync(path.join(basePath, entryRelPath));
-        if (this.config.scanner.minSize && stats.size < this.config.scanner.minSize) continue;
-        if (this.config.scanner.maxSize && stats.size > this.config.scanner.maxSize) continue;
+        if (config.scanner.minSize && stats.size < config.scanner.minSize) continue;
+        if (config.scanner.maxSize && stats.size > config.scanner.maxSize) continue;
 
         const kind = EXTENSION_MAP[ext] || 'other';
+
+        // Skip non-media files. Keep audio/video/image plus subtitle/lyric sidecars.
+        if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext)) {
+          continue;
+        }
+
         const name = path.basename(entry.name, path.extname(entry.name));
 
         results.push({

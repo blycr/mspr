@@ -1,4 +1,3 @@
-import { probeEngine } from './probe-engine.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -6,7 +5,7 @@ export class ThumbnailGenerator {
   public async getThumbnail(mediaId: string): Promise<Response> {
     const { configManager } = await import('../config/manager.js');
     const { default: db } = await import('../db/sqlite.js');
-    
+
     const CACHE_DIR = path.resolve(process.cwd(), 'data', 'thumbnails');
     if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -17,7 +16,7 @@ export class ThumbnailGenerator {
     }
 
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(mediaId) as any;
-    if (!item || item.kind !== 'video') return new Response('Not found', { status: 404 });
+    if (!item) return new Response('Not found', { status: 404 });
 
     const config = configManager.get();
     const share = config.shares.find(s => s.label === item.shareLabel);
@@ -25,9 +24,29 @@ export class ThumbnailGenerator {
 
     const fullPath = path.join(share.path, item.relPath);
 
+    // Audio: try to extract embedded cover art, or generate a waveform-style placeholder
+    if (item.kind === 'audio') {
+      return this.generateAudioThumbnail(fullPath, cachePath, item);
+    }
+
+    // Image: return the image itself, resized if needed
+    if (item.kind === 'image') {
+      return this.serveImageThumbnail(fullPath, cachePath);
+    }
+
+    // Video: extract frame at 10s
+    if (item.kind === 'video') {
+      return this.generateVideoThumbnail(fullPath, cachePath);
+    }
+
+    return new Response('Not supported', { status: 404 });
+  }
+
+  private async generateVideoThumbnail(fullPath: string, cachePath: string): Promise<Response> {
     try {
       const process = Bun.spawn([
         'ffmpeg',
+        '-hide_banner',
         '-ss', '10',
         '-i', fullPath,
         '-vframes', '1',
@@ -43,10 +62,71 @@ export class ThumbnailGenerator {
         return new Response(buffer, { headers: { 'Content-Type': 'image/webp' } });
       }
     } catch (e) {
-      console.error('Thumbnail generation failed:', e);
+      console.error('[Thumbnail] Video generation failed:', e);
+    }
+    return new Response('Generation failed', { status: 500 });
+  }
+
+  private async generateAudioThumbnail(fullPath: string, cachePath: string, item: any): Promise<Response> {
+    // First try to extract embedded cover art
+    try {
+      const process = Bun.spawn([
+        'ffmpeg',
+        '-hide_banner',
+        '-i', fullPath,
+        '-an',
+        '-vcodec', 'copy',
+        '-f', 'image2pipe',
+        'pipe:1'
+      ]);
+      const buffer = await new Response(process.stdout).arrayBuffer();
+      if (buffer.byteLength > 100) {
+        fs.writeFileSync(cachePath, Buffer.from(buffer));
+        return new Response(buffer, { headers: { 'Content-Type': 'image/webp' } });
+      }
+    } catch {
+      // No embedded cover, generate a visual placeholder
     }
 
-    return new Response('Generation failed', { status: 500 });
+    // Fallback: generate a simple colored placeholder with text
+    return this.generatePlaceholderThumbnail(item.name, cachePath);
+  }
+
+  private async serveImageThumbnail(fullPath: string, cachePath: string): Promise<Response> {
+    try {
+      // For images, just copy and convert to webp via ffmpeg for consistency
+      const process = Bun.spawn([
+        'ffmpeg',
+        '-hide_banner',
+        '-i', fullPath,
+        '-vf', 'scale=320:-1',
+        '-f', 'image2pipe',
+        '-c:v', 'webp',
+        'pipe:1'
+      ]);
+      const buffer = await new Response(process.stdout).arrayBuffer();
+      if (buffer.byteLength > 0) {
+        fs.writeFileSync(cachePath, Buffer.from(buffer));
+        return new Response(buffer, { headers: { 'Content-Type': 'image/webp' } });
+      }
+    } catch (e) {
+      console.error('[Thumbnail] Image resize failed:', e);
+    }
+    // Fallback: serve original
+    return new Response(Bun.file(fullPath));
+  }
+
+  private async generatePlaceholderThumbnail(name: string, cachePath: string): Promise<Response> {
+    // Create a simple SVG placeholder with the first letter of the filename
+    const initial = name.charAt(0).toUpperCase();
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#1a1a2e"/>
+  <text x="160" y="115" font-family="system-ui, sans-serif" font-size="72" font-weight="700"
+        fill="#8b5cf6" text-anchor="middle" dominant-baseline="middle">${initial}</text>
+</svg>`;
+    fs.writeFileSync(cachePath, svg);
+    return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml' } });
   }
 }
 

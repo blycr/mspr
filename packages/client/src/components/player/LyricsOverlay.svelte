@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { parseLRC, type LyricLine } from '../../lib/player/lyrics';
+  import { api } from '../../lib/api.js';
 
   interface Props {
     lyricId: string;
@@ -20,7 +21,7 @@
 
   onMount(async () => {
     try {
-      const res = await fetch(`http://localhost:3000/media/lyric?id=${lyricId}`);
+      const res = await fetch(`${api.baseUrl}/media/lyric?id=${lyricId}`);
       const text = await res.text();
       lyrics = parseLRC(text);
     } catch (e) {
@@ -57,11 +58,10 @@
   .lyrics-container {
     height: 100%;
     overflow-y: auto;
-    padding: 40px 20px;
+    padding: 60px 20px;
     display: flex;
     flex-direction: column;
     gap: 20px;
-    mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
     scrollbar-width: none;
   }
 
@@ -82,9 +82,16 @@
 
   .lyric-line.active {
     color: var(--text-primary);
-    transform: scale(1.1);
     filter: blur(0);
     opacity: 1;
+    text-shadow: 0 0 16px rgba(255, 255, 255, 0.25);
+    transform: scale(1.1);
+  }
+
+  @media (max-width: 768px) {
+    .lyric-line.active {
+      transform: none;
+    }
   }
 
   .status {

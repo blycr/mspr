@@ -7,9 +7,31 @@ export class HWAccelDetector {
     encoderMap: {}
   };
 
+  /** Try to find ffmpeg binary, with Windows .exe fallback */
+  private async findFfmpeg(): Promise<string | null> {
+    for (const cmd of ['ffmpeg', 'ffmpeg.exe']) {
+      try {
+        const proc = Bun.spawn([cmd, '-version'], { stderr: 'ignore' });
+        const status = await proc.exited;
+        if (status === 0) return cmd;
+      } catch {
+        // continue to next candidate
+      }
+    }
+    return null;
+  }
+
   public async detect(): Promise<HWAccelResult> {
+    const ffmpegCmd = await this.findFfmpeg();
+    if (!ffmpegCmd) {
+      console.warn('[HWAccel] ffmpeg not found in PATH. Transcoding will not work.');
+      return this.result;
+    }
+
+    console.log(`[HWAccel] Found ffmpeg: ${ffmpegCmd}`);
+
     try {
-      const { stdout } = Bun.spawn(['ffmpeg', '-hwaccels']);
+      const { stdout } = Bun.spawn([ffmpegCmd, '-hide_banner', '-hwaccels']);
       const output = await new Response(stdout).text();
       const hwaccels = output.split('\n')
         .slice(1)
@@ -17,6 +39,7 @@ export class HWAccelDetector {
         .filter(line => line && !line.startsWith('Hardware'));
 
       this.result.available = hwaccels;
+      console.log(`[HWAccel] Available hwaccels: ${hwaccels.join(', ') || 'none'}`);
 
       // Test specific encoders
       const encodersToTest = [
@@ -28,35 +51,36 @@ export class HWAccelDetector {
       ];
 
       for (const test of encodersToTest) {
-        if (await this.testEncoder(test.encoder)) {
+        if (await this.testEncoder(ffmpegCmd, test.encoder)) {
           this.result.preferred = test.name;
           this.result.encoderMap[test.name] = test.encoder;
-          console.log(`✨ Hardware acceleration detected: ${test.name} (${test.encoder})`);
-          break; // Stop at first working encoder
+          console.log(`[HWAccel] Using hardware acceleration: ${test.name} (${test.encoder})`);
+          break;
         }
       }
 
       if (this.result.preferred === 'cpu') {
-        console.log('ℹ️ No hardware acceleration detected, falling back to CPU (libx264)');
+        console.log('[HWAccel] No hardware acceleration available, falling back to CPU (libx264). This is normal on systems without a supported GPU or when using a CPU-only ffmpeg build.');
       }
 
       return this.result;
     } catch (e) {
-      console.error('Failed to detect HW acceleration:', e);
+      console.error('[HWAccel] Detection failed:', e);
       return this.result;
     }
   }
 
-  private async testEncoder(encoder: string): Promise<boolean> {
+  private async testEncoder(ffmpegCmd: string, encoder: string): Promise<boolean> {
     try {
       const process = Bun.spawn([
-        'ffmpeg',
+        ffmpegCmd,
+        '-hide_banner',
         '-f', 'lavfi',
         '-i', 'nullsrc=s=64x64:d=1',
         '-c:v', encoder,
         '-f', 'null',
         '-'
-      ], { stderr: 'ignore' });
+      ], { stderr: 'pipe' });
       const status = await process.exited;
       return status === 0;
     } catch {

@@ -1,4 +1,4 @@
-import { MediaKind } from '../types/media.js';
+import type { MediaKind } from '../types/media.js';
 
 export const EXTENSION_MAP: Record<string, MediaKind> = {
   // Video
@@ -21,6 +21,7 @@ export const EXTENSION_MAP: Record<string, MediaKind> = {
   'm4a': 'audio',
   'wma': 'audio',
   'ape': 'audio',
+  'opus': 'audio',
   
   // Image
   'jpg': 'image',

@@ -1,81 +1,160 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { playerEngine } from '../../lib/player/engine';
+  import { api } from '../../lib/api.js';
+  import { formatTime } from '../../lib/format.js';
+  import Icon from '../Icon.svelte';
   import LyricsOverlay from './LyricsOverlay.svelte';
-  import type { MediaItem } from '@mspr/shared';
+  import type { MediaItem, ProbeResult } from '@mspr/shared';
 
   interface Props {
     item: MediaItem;
     onClose: () => void;
+    onNext: () => void;
+    onPrev: () => void;
+    playMode: 'loop' | 'shuffle' | 'repeat-one';
+    onToggleMode: () => void;
+    isAutoPlay: boolean;
   }
 
-  let { item, onClose }: Props = $props();
-  let videoElement = $state<HTMLVideoElement | null>(null);
+  let { item, onClose, onNext, onPrev, playMode, onToggleMode, isAutoPlay }: Props = $props();
+  let mediaElement = $state<HTMLVideoElement | HTMLAudioElement | null>(null);
   let src = $state('');
   let isTranscoding = $state(false);
   let error = $state('');
   let currentTime = $state(0);
-  let showResumePrompt = $state(false);
-  let savedTime = 0;
+  let duration = $state(0);
+  let isPlaying = $state(false);
+  let volume = $state(1);
+  let isLoading = $state(true);
+  let probeResult = $state<ProbeResult | null>(null);
+  let seekOffset = $state(0);
 
   onMount(async () => {
     try {
       const info = await playerEngine.getPlaybackInfo(item.id);
       src = info.src;
+      probeResult = info.probe;
       isTranscoding = info.probe.strategy === 'transcode';
+      duration = info.probe.duration || 0;
+      isLoading = false;
 
-      // Check for saved progress
-      const progRes = await fetch(`http://localhost:3000/personal/progress?id=${item.id}`);
-      const prog = await progRes.json();
-      if (prog.time > 10) { // Only prompt if > 10 seconds
-        savedTime = prog.time;
-        showResumePrompt = true;
+      const prog = await api.fetchProgress(item.id);
+      if (!isAutoPlay && prog.time > 10 && mediaElement) {
+        mediaElement.currentTime = prog.time;
       }
     } catch (e) {
-      error = 'Failed to load video metadata.';
+      error = 'Failed to load media.';
+      isLoading = false;
     }
   });
 
-  function handleVideoError() {
+  function handleMediaError() {
+    const el = mediaElement;
+    if (!el) return;
+
+    const code = el.error?.code;
+
     if (!isTranscoding) {
-      src = playerEngine.getStreamUrl(item.id, true);
-      isTranscoding = true;
+      if (code === 3 || code === 4) {
+        src = playerEngine.getStreamUrl(item.id, true);
+        isTranscoding = true;
+        return;
+      }
+    }
+
+    error = code === 2
+      ? 'Network error. Check server connection.'
+      : code === 3
+        ? 'Decode error. File may be corrupted.'
+        : code === 4
+          ? 'Format not supported.'
+          : 'Playback failed.';
+  }
+
+  async function saveProgress() {
+    if (mediaElement && mediaElement.currentTime > 0) {
+      await api.saveProgress(item.id, mediaElement.currentTime);
+    }
+  }
+
+  function togglePlay() {
+    if (!mediaElement) return;
+    if (isPlaying) mediaElement.pause();
+    else mediaElement.play();
+  }
+
+  function handleEnded() {
+    if (!mediaElement) return;
+    if (playMode === 'repeat-one') {
+      mediaElement.currentTime = 0;
+      mediaElement.play().catch(() => {});
     } else {
-      error = 'Video playback failed even with transcoding.';
+      onNext();
     }
   }
 
-  function saveProgress() {
-    if (videoElement && videoElement.currentTime > 0) {
-      fetch('http://localhost:3000/personal/progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, time: videoElement.currentTime })
-      });
+  function seekTo(targetTime: number) {
+    if (!mediaElement || !duration) return;
+    targetTime = Math.max(0, Math.min(duration, targetTime));
+
+    // For transcoded streams, reload with offset since the browser cannot seek inside a generated pipe stream
+    if (isTranscoding) {
+      const wasPlaying = !mediaElement.paused;
+      mediaElement.pause();
+      seekOffset = Math.floor(targetTime);
+      const newSrc = playerEngine.getStreamUrl(item.id, true, seekOffset);
+      mediaElement.src = newSrc;
+      mediaElement.load();
+      if (wasPlaying) {
+        mediaElement.play().catch(() => {});
+      }
+    } else {
+      seekOffset = 0;
+      mediaElement.currentTime = targetTime;
     }
   }
 
-  function resume() {
-    if (videoElement) {
-      videoElement.currentTime = savedTime;
-    }
-    showResumePrompt = false;
+  function handleSeek(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    seekTo(ratio * duration);
   }
 
-  // Auto-save progress every 10 seconds
-  let interval: any;
+  let interval: ReturnType<typeof setInterval>;
   $effect(() => {
-    if (videoElement) {
+    if (mediaElement) {
       interval = setInterval(saveProgress, 10000);
       return () => clearInterval(interval);
     }
   });
+
+  const modeLabel = $derived.by(() => {
+    switch (playMode) {
+      case 'loop': return 'List loop';
+      case 'shuffle': return 'Shuffle';
+      case 'repeat-one': return 'Repeat one';
+    }
+  });
+
+  const subtitleTracks = $derived.by(() => {
+    return (item.subtitles || []).map(sub => ({
+      ...sub,
+      src: sub.src.startsWith('http') ? sub.src : api.subtitleUrl(sub.id)
+    }));
+  });
+
+  const displayTime = $derived(currentTime + seekOffset);
+
+  const progressPct = $derived.by(() => {
+    return duration > 0 ? (displayTime / duration) * 100 : 0;
+  });
 </script>
 
-<div class="player-overlay" transition:fade>
+<div class="player-overlay">
   <div class="player-container" class:audio-mode={item.kind === 'audio'}>
     {#if item.kind === 'audio'}
-      <div class="player-bg" style="background-image: url('http://localhost:3000/media/thumbnail?id={item.id}')"></div>
+      <div class="player-bg" style="background-image: url('{api.thumbnailUrl(item.id)}')"></div>
     {/if}
 
     <div class="player-content">
@@ -84,58 +163,143 @@
           <span class="badge kind">{item.kind}</span>
           <h2 class="title">{item.name}</h2>
           {#if isTranscoding}
-            <span class="badge transcoding">Transcoding Stream</span>
+            <span class="badge transcoding">Transcoding</span>
           {/if}
         </div>
-        <button class="close-btn" onclick={() => { saveProgress(); onClose(); }} aria-label="Close Player">
-          <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
+        <div class="header-actions">
+          {#if item.kind === 'video'}
+            <button class="ctrl-btn" onclick={onPrev} aria-label="Previous">
+              <Icon name="skip-prev" size={18} />
+            </button>
+            <button class="ctrl-btn" onclick={onNext} aria-label="Next">
+              <Icon name="skip-next" size={18} />
+            </button>
+            <button class="mode-btn" onclick={onToggleMode} aria-label="Play mode: {modeLabel}">
+              <Icon name={playMode === 'shuffle' ? 'shuffle' : 'repeat'} size={16} />
+              {#if playMode === 'repeat-one'}
+                <span class="mode-badge">1</span>
+              {/if}
+            </button>
+          {/if}
+          <button class="close-btn" onclick={async () => { await saveProgress(); onClose(); }} aria-label="Close Player">
+            <Icon name="close" size={20} />
+          </button>
+        </div>
       </header>
 
-      <div class="player-main">
-        <div class="visual-section">
-          {#if error}
-            <div class="error-msg">
-              <span class="error-icon">⚠️</span>
-              <p>{error}</p>
+      <div class="player-main" class:audio-layout={item.kind === 'audio'}>
+        {#if item.kind === 'audio'}
+          <div class="audio-left">
+            <div class="cover-wrap">
+              <img src={api.thumbnailUrl(item.id)} alt="" class="cover-img" />
             </div>
-          {:else if src}
-            <div class="media-wrapper">
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <video
-                bind:this={videoElement}
-                {src}
-                controls
-                autoplay
-                ontimeupdate={() => currentTime = videoElement?.currentTime || 0}
-                onerror={handleVideoError}
-              >
-                {#each item.subtitles || [] as sub}
-                  <track kind="subtitles" src={sub.src} label={sub.label} default={sub.default} />
-                {/each}
-              </video>
 
-              {#if showResumePrompt}
-                <div class="resume-toast">
-                  <p>Resume from <strong>{Math.floor(savedTime / 60)}:{(Math.floor(savedTime % 60)).toString().padStart(2, '0')}</strong>?</p>
-                  <div class="toast-actions">
-                    <button class="btn-primary" onclick={resume}>Resume</button>
-                    <button class="btn-ghost" onclick={() => showResumePrompt = false}>Dismiss</button>
-                  </div>
+            <div class="audio-controls">
+              <div class="progress-track" onclick={handleSeek} onkeydown={(e) => {
+                if (!mediaElement || !duration) return;
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  seekTo(displayTime - 5);
+                }
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  seekTo(displayTime + 5);
+                }
+              }} role="slider" aria-valuenow={currentTime} aria-valuemax={duration} aria-label="Seek" tabindex="0">
+                <div class="progress-fill" style="width: {progressPct}%"></div>
+              </div>
+              <div class="time-row">
+                <span>{formatTime(displayTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+              <div class="btn-row">
+                <button class="ctrl-btn" onclick={onPrev} aria-label="Previous">
+                  <Icon name="skip-prev" size={22} />
+                </button>
+                <button class="play-btn" onclick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+                  <Icon name={isPlaying ? 'pause' : 'play'} size={28} />
+                </button>
+                <button class="ctrl-btn" onclick={onNext} aria-label="Next">
+                  <Icon name="skip-next" size={22} />
+                </button>
+              </div>
+              <div class="btn-row secondary">
+                <button class="mode-btn" onclick={onToggleMode} aria-label="Play mode: {modeLabel}">
+                  <Icon name={playMode === 'shuffle' ? 'shuffle' : 'repeat'} size={16} />
+                  {#if playMode === 'repeat-one'}
+                    <span class="mode-badge">1</span>
+                  {/if}
+                </button>
+                <div class="volume-wrap">
+                  <button class="vol-btn" onclick={() => { if (mediaElement) mediaElement.muted = !mediaElement.muted; }} aria-label="Toggle mute">
+                    <Icon name={(mediaElement?.muted || volume === 0) ? 'volume-off' : 'volume-up'} size={20} />
+                  </button>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={volume}
+                    oninput={(e) => { if (mediaElement) mediaElement.volume = parseFloat(e.currentTarget.value); }}
+                    class="vol-slider"
+                    aria-label="Volume"
+                  />
                 </div>
-              {/if}
+              </div>
             </div>
-          {:else}
-            <div class="loading-state">
-              <div class="shimmer"></div>
-              <p>Preparing High-Quality Stream...</p>
-            </div>
-          {/if}
-        </div>
+
+            <audio
+              bind:this={mediaElement}
+              {src}
+              autoplay
+              onplay={() => isPlaying = true}
+              onpause={() => isPlaying = false}
+              onloadedmetadata={() => { if (!duration) duration = mediaElement?.duration || 0; }}
+              ontimeupdate={() => currentTime = mediaElement?.currentTime || 0}
+              onvolumechange={() => volume = mediaElement?.muted ? 0 : (mediaElement?.volume || 0)}
+              onended={handleEnded}
+              onerror={handleMediaError}
+            ></audio>
+
+          </div>
+        {:else}
+          <div class="visual-section">
+            {#if error}
+              <div class="error-msg">
+                <Icon name="warning" size={32} />
+                <p>{error}</p>
+              </div>
+            {:else if isLoading}
+              <div class="loading-state">
+                <div class="loader"></div>
+                <p>Preparing stream...</p>
+              </div>
+            {:else if src}
+              <div class="media-wrapper">
+                <!-- svelte-ignore a11y_media_has_caption -->
+                <video
+                  bind:this={mediaElement}
+                  {src}
+                  controls
+                  autoplay
+                  playsinline
+                  ontimeupdate={() => currentTime = mediaElement?.currentTime || 0}
+                  onended={handleEnded}
+                  onerror={handleMediaError}
+                >
+                  {#each subtitleTracks as sub}
+                    <track kind="subtitles" src={sub.src} srclang={sub.lang || ''} label={sub.label} default={sub.default} />
+                  {/each}
+                </video>
+
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         {#if item.kind === 'audio' && item.lyricsId}
           <div class="lyrics-section">
-            <LyricsOverlay lyricId={item.lyricsId} {currentTime} />
+            <LyricsOverlay lyricId={item.lyricsId} currentTime={displayTime} />
           </div>
         {/if}
       </div>
@@ -147,35 +311,34 @@
   .player-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.95);
+    background: rgba(0, 0, 0, 0.92);
     z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
   }
 
   .player-container {
     width: 100%;
-    max-width: 1200px;
-    height: 90vh;
-    background: #0a0a0c;
-    border-radius: 24px;
+    max-width: 1100px;
+    height: 85vh;
+    background: #0c0c10;
+    border-radius: 16px;
     position: relative;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
   .player-bg {
     position: absolute;
-    inset: -50px;
+    inset: -40px;
     background-size: cover;
     background-position: center;
-    filter: blur(60px) brightness(0.3);
-    opacity: 0.6;
+    filter: blur(50px) brightness(0.25);
+    opacity: 0.5;
     z-index: 0;
   }
 
@@ -185,66 +348,72 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    flex: 1;
   }
 
   .player-header {
-    padding: 24px 32px;
+    padding: 18px 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.5), transparent);
+    background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent);
+    flex-shrink: 0;
   }
 
   .item-info {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    min-width: 0;
   }
 
   .title {
     margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
+    font-size: 1.1rem;
+    font-weight: 600;
     color: white;
-    letter-spacing: -0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .badge {
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 0.7rem;
-    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 5px;
+    font-size: 0.65rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
   }
 
   .badge.kind {
-    background: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
   }
 
   .badge.transcoding {
-    background: #f59e0b;
-    color: black;
+    background: #d97706;
+    color: white;
   }
 
   .close-btn {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.08);
     border: none;
     color: white;
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: 0.2s;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
   }
 
   .close-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: scale(1.1);
+    background: rgba(255, 255, 255, 0.15);
   }
 
   .player-main {
@@ -253,38 +422,247 @@
     min-height: 0;
   }
 
-  .audio-mode .player-main {
+  .audio-layout {
     flex-direction: row;
   }
 
+  /* ===== Audio Left Panel ===== */
+  .audio-left {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    gap: 32px;
+    position: relative;
+    min-width: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .audio-left::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cover-wrap {
+    width: 100%;
+    max-width: 300px;
+    aspect-ratio: 1 / 1;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    flex-shrink: 0;
+  }
+
+  .cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .audio-controls {
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .progress-track {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .progress-track:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--accent-color);
+    border-radius: 3px;
+    transition: width 0.1s linear;
+    pointer-events: none;
+  }
+
+  .time-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+
+  .btn-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  .btn-row.secondary {
+    gap: 14px;
+  }
+
+  .play-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    border: none;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, background 0.15s ease;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .play-btn:hover {
+    transform: scale(1.06);
+    background: var(--accent-hover);
+  }
+
+  .volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .vol-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    transition: color 0.15s ease;
+  }
+
+  .vol-btn:hover {
+    color: var(--text-primary);
+  }
+
+  .vol-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 90px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+  }
+
+  .vol-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  .vol-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-color);
+    cursor: pointer;
+    border: none;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ctrl-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 8px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .ctrl-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .mode-btn {
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 8px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+
+  .mode-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .mode-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.55rem;
+    font-weight: 700;
+    background: var(--accent-color);
+    color: white;
+    border-radius: 3px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+
+  /* ===== Video Section ===== */
   .visual-section {
     flex: 1.5;
-    background: black;
+    background: #000;
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-  }
-
-  .audio-mode .visual-section {
-    flex: 1;
-    background: transparent;
-    padding: 40px;
+    min-width: 0;
   }
 
   .media-wrapper {
     width: 100%;
     height: 100%;
     position: relative;
-  }
-
-  .audio-mode .media-wrapper {
-    aspect-ratio: 1;
-    max-width: 500px;
-    border-radius: 20px;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
-    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   video {
@@ -293,31 +671,69 @@
     object-fit: contain;
   }
 
+  /* ===== Lyrics ===== */
   .lyrics-section {
     flex: 1;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.25);
     border-left: 1px solid rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
+    overflow: hidden;
+    min-width: 0;
   }
+
+  /* ===== Shared States ===== */
+  .error-msg {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: #ef4444;
+    text-align: center;
+    padding: 24px;
+  }
+
+  .error-msg p {
+    color: rgba(255, 255, 255, 0.7);
+    margin: 0;
+  }
+
+  .loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    color: rgba(255, 255, 255, 0.4);
+  }
+
+  .loader {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .resume-toast {
     position: absolute;
-    bottom: 40px;
+    bottom: 32px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(20, 20, 22, 0.95);
-    padding: 16px 24px;
-    border-radius: 16px;
+    background: rgba(15, 15, 18, 0.95);
+    padding: 14px 20px;
+    border-radius: 12px;
     border: 1px solid var(--accent-color);
-    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
     z-index: 100;
     text-align: center;
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
   }
 
   .toast-actions {
     display: flex;
-    gap: 12px;
-    margin-top: 12px;
+    gap: 10px;
+    margin-top: 10px;
     justify-content: center;
   }
 
@@ -325,35 +741,97 @@
     background: var(--accent-color);
     color: white;
     border: none;
-    padding: 8px 20px;
+    padding: 8px 18px;
     border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s ease;
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-hover);
   }
 
   .btn-ghost {
     background: transparent;
-    color: rgba(255,255,255,0.6);
+    color: rgba(255,255,255,0.5);
     border: 1px solid rgba(255,255,255,0.1);
-    padding: 8px 20px;
+    padding: 8px 18px;
     border-radius: 8px;
     cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.15s ease;
   }
 
-  .loading-state {
-    text-align: center;
-    color: rgba(255,255,255,0.4);
+  .btn-ghost:hover {
+    color: rgba(255,255,255,0.8);
+    border-color: rgba(255,255,255,0.2);
   }
 
-  .shimmer {
-    width: 60px;
-    height: 60px;
-    border: 4px solid rgba(255,255,255,0.1);
-    border-top-color: var(--accent-color);
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin: 0 auto 20px;
-  }
+  /* ===== Responsive ===== */
+  @media (max-width: 768px) {
+    .player-overlay {
+      padding: 0;
+    }
 
-  @keyframes spin { to { transform: rotate(360deg); } }
+    .player-container {
+      max-width: 100%;
+      height: 100dvh;
+      border-radius: 0;
+      border: none;
+    }
+
+    .player-header {
+      padding: 12px 16px;
+    }
+
+    .title {
+      font-size: 0.9rem;
+    }
+
+    .audio-layout {
+      flex-direction: column;
+    }
+
+    .audio-left {
+      flex: none;
+      padding: 20px 16px;
+      gap: 20px;
+      justify-content: flex-start;
+      padding-top: 24px;
+      max-height: 55vh;
+    }
+
+    .cover-wrap {
+      max-width: 220px;
+    }
+
+    .audio-controls {
+      max-width: 100%;
+    }
+
+    .play-btn {
+      width: 52px;
+      height: 52px;
+    }
+
+    .lyrics-section {
+      border-left: none;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      flex: 1;
+      min-height: 0;
+    }
+
+    .visual-section {
+      flex: 1;
+    }
+
+    .resume-toast {
+      bottom: 16px;
+      padding: 12px 16px;
+      white-space: normal;
+      max-width: 90vw;
+    }
+  }
 </style>

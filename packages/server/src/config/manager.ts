@@ -50,10 +50,11 @@ export class ConfigManager {
   }
 
   public watch() {
-    console.log('👀 Watching config for changes...');
+    if (!fs.existsSync(CONFIG_PATH)) return;
+    console.log('[Config] Watching for changes...');
     fs.watch(CONFIG_PATH, (event) => {
       if (event === 'change') {
-        console.log('🔄 Config file changed, reloading...');
+        console.log('[Config] File changed, reloading...');
         this.config = this.load();
       }
     });

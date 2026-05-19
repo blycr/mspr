@@ -33,7 +33,9 @@ export class ProbeEngine {
       const output = await new Response(process.stdout).text();
       const data = JSON.parse(output);
 
-      const videoStream = data.streams.find((s: any) => s.codec_type === 'video');
+      // Ignore cover-art streams (mjpeg/png embedded in audio files)
+      const coverCodecs = new Set(['mjpeg', 'png']);
+      const videoStream = data.streams.find((s: any) => s.codec_type === 'video' && !coverCodecs.has(s.codec_name));
       const audioStream = data.streams.find((s: any) => s.codec_type === 'audio');
 
       const videoCodec = videoStream?.codec_name || null;
@@ -67,7 +69,7 @@ export class ProbeEngine {
         height: videoStream?.height || null
       };
 
-      console.log(`🔍 Probe Result for ${item.name}:`, JSON.stringify(result, null, 2));
+      console.log(`[Probe] ${item.name}: strategy=${result.strategy}, vcodec=${result.videoCodec}, acodec=${result.audioCodec}, container=${result.container}`);
       return result;
 
     } catch (e) {

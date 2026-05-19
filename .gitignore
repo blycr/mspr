@@ -28,3 +28,4 @@ desktop.ini
 packages/server/data/mspr.db
 packages/server/data/thumbnails/
 packages/server/data/config.json
+.playwright-mcp/

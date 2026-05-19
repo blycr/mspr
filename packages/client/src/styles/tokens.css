@@ -42,4 +42,10 @@ body {
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: hsla(250, 70%, 60%, 0.35);
+  color: var(--text-primary);
 }

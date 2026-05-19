@@ -2,6 +2,10 @@
   import { onMount } from 'svelte';
   import type { MediaItem } from '@mspr/shared';
   import VideoPlayer from './components/player/VideoPlayer.svelte';
+  import MediaCard from './components/MediaCard.svelte';
+  import Icon from './components/Icon.svelte';
+  import { api } from './lib/api.js';
+  import { playlistManager } from './lib/player/playlist.js';
   import './styles/tokens.css';
 
   let items = $state<MediaItem[]>([]);
@@ -9,33 +13,61 @@
   let loading = $state(true);
   let selectedItem = $state<MediaItem | null>(null);
   let searchQuery = $state('');
-  let activeTab = $state<'all' | 'video' | 'audio' | 'history'>('all');
-  let displayLimit = $state(100);
+  let activeTab = $state<'all' | 'video' | 'audio' | 'image' | 'history'>('all');
+  let isMobile = $state(false);
+  let sidebarOpen = $state(false);
+  let playMode = $state<'loop' | 'shuffle' | 'repeat-one'>(playlistManager.mode);
+  let isAutoPlay = $state(false);
 
-  // Reset limit on tab or search change
-  $effect(() => {
-    activeTab; searchQuery;
-    displayLimit = 100;
-  });
+  /* Virtual scroll state */
+  let scrollEl = $state<HTMLElement | null>(null);
+  let gridCols = $state(4);
+  let scrollTop = $state(0);
+  let containerHeight = $state(0);
+
+  const ROW_HEIGHT_DESKTOP = 280;
+  const ROW_HEIGHT_MOBILE = 220;
+  const BUFFER_ROWS = 4;
+
+  const rowHeight = $derived(isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP);
 
   const filteredItems = $derived.by(() => {
     let base = activeTab === 'history' ? history : items;
     if (activeTab === 'video') base = items.filter(i => i.kind === 'video');
     if (activeTab === 'audio') base = items.filter(i => i.kind === 'audio');
-    
+    if (activeTab === 'image') base = items.filter(i => i.kind === 'image');
+
     if (!searchQuery) return base;
     return base.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  });
+
+  const totalRows = $derived(Math.ceil(filteredItems.length / gridCols));
+  const totalHeight = $derived(totalRows * rowHeight);
+
+  const startRow = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - BUFFER_ROWS));
+  const endRow = $derived(Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / rowHeight) + BUFFER_ROWS));
+
+  const startIndex = $derived(startRow * gridCols);
+  const endIndex = $derived(Math.min(endRow * gridCols, filteredItems.length));
+  const visibleItems = $derived(filteredItems.slice(startIndex, endIndex));
+  const topOffset = $derived(startRow * rowHeight);
+
+  /* Reset scroll on tab/filter change */
+  $effect(() => {
+    activeTab;
+    searchQuery;
+    if (scrollEl) scrollEl.scrollTop = 0;
   });
 
   async function fetchMedia() {
     try {
       loading = true;
       const [mediaRes, historyRes] = await Promise.all([
-        fetch('http://localhost:3000/media'),
-        fetch('http://localhost:3000/personal/history')
+        api.fetchMedia(),
+        api.fetchHistory()
       ]);
-      items = await mediaRes.json();
-      history = await historyRes.json();
+      items = mediaRes;
+      history = historyRes;
     } catch (e) {
       console.error('Failed to fetch media:', e);
     } finally {
@@ -43,140 +75,212 @@
     }
   }
 
-  onMount(fetchMedia);
+  onMount(() => {
+    fetchMedia();
+    const checkMobile = () => { isMobile = window.innerWidth <= 768; };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  });
 
-  function formatSize(bytes: number) {
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let val = bytes;
-    let unitIndex = 0;
-    while (val > 1024 && unitIndex < units.length - 1) {
-      val /= 1024;
-      unitIndex++;
-    }
-    return `${val.toFixed(1)} ${units[unitIndex]}`;
-  }
+  /* ResizeObserver: column count + viewport height */
+  $effect(() => {
+    if (!scrollEl) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const cr = entry.contentRect;
+        containerHeight = cr.height;
+        const w = cr.width;
+        if (w <= 480) gridCols = 2;
+        else if (w <= 768) gridCols = 2;
+        else gridCols = Math.max(2, Math.floor(w / 220));
+      }
+    });
+    ro.observe(scrollEl);
+    return () => ro.disconnect();
+  });
 
   function handleCardClick(item: MediaItem) {
     if (item.kind === 'video' || item.kind === 'audio') {
+      const list = items.filter(i => i.kind === item.kind);
+      const idx = list.findIndex(i => i.id === item.id);
+      playlistManager.setPlaylist(list, Math.max(0, idx));
       selectedItem = item;
+      isAutoPlay = false;
     }
   }
+
+  function handleNext() {
+    isAutoPlay = true;
+    const next = playlistManager.next();
+    if (next) selectedItem = next;
+    playMode = playlistManager.mode;
+  }
+
+  function handlePrev() {
+    isAutoPlay = true;
+    const prev = playlistManager.prev();
+    if (prev) selectedItem = prev;
+    playMode = playlistManager.mode;
+  }
+
+  function handleToggleMode() {
+    playlistManager.toggleMode();
+    playMode = playlistManager.mode;
+  }
+
+  function handleCardKey(event: KeyboardEvent, item: MediaItem) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleCardClick(item);
+    }
+  }
+
+  const tabs = [
+    { key: 'all' as const, label: 'All', icon: 'folder' as const },
+    { key: 'video' as const, label: 'Videos', icon: 'video' as const },
+    { key: 'audio' as const, label: 'Music', icon: 'music' as const },
+    { key: 'image' as const, label: 'Images', icon: 'file' as const },
+    { key: 'history' as const, label: 'Recent', icon: 'clock' as const },
+  ];
 </script>
 
 <main class="app-container">
-  <div class="app-background"></div>
-  
-  <aside class="sidebar">
-    <div class="logo">
-      <div class="logo-circle">
-        <span class="logo-icon">▲</span>
-      </div>
-      <h2>MSP</h2>
-    </div>
-    
-    <nav class="side-nav">
-      <button class:active={activeTab === 'all'} onclick={() => activeTab = 'all'}>
-        <span class="icon">📁</span> <span>All Library</span>
+  {#if isMobile}
+    <header class="mobile-header">
+      <button class="icon-btn" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Menu">
+        <Icon name="menu" size={22} />
       </button>
-      <button class:active={activeTab === 'video'} onclick={() => activeTab = 'video'}>
-        <span class="icon">🎬</span> <span>Videos</span>
-      </button>
-      <button class:active={activeTab === 'audio'} onclick={() => activeTab = 'audio'}>
-        <span class="icon">🎵</span> <span>Music</span>
-      </button>
-      <button class:active={activeTab === 'history'} onclick={() => activeTab = 'history'}>
-        <span class="icon">🕒</span> <span>Recent</span>
-      </button>
-    </nav>
-
-    <div class="sidebar-footer">
-      <button class="refresh-btn" onclick={fetchMedia}>
-        Sync Library
-      </button>
-    </div>
-  </aside>
-
-  <div class="main-content">
-    <header class="search-header">
-      <div class="search-box">
-        <span class="search-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-        </span>
-        <input 
-          type="text" 
-          placeholder="Search by title, genre, or path..." 
-          bind:value={searchQuery}
-        />
-      </div>
-      <div class="user-info">
-        <div class="server-status">
-          <span class="status-dot pulse"></span>
-          <span>Local Node Online</span>
-        </div>
+      <span class="logo-text">MSP</span>
+      <div class="mobile-search">
+        <Icon name="search" size={16} />
+        <input type="text" placeholder="Search..." bind:value={searchQuery} />
       </div>
     </header>
 
-    <section class="scroll-area">
-      <div class="view-header">
-        <div class="title-group">
-          <h3>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h3>
-          <p class="subtitle">{filteredItems.length} elements available</p>
+    {#if sidebarOpen}
+      <div class="drawer-overlay" role="presentation" onclick={() => sidebarOpen = false}>
+        <div class="mobile-drawer" aria-label="Navigation menu" onclick={e => e.stopPropagation()}>
+          <div class="drawer-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <Icon name="logo" size={22} />
+              <span class="logo-text">MSP</span>
+            </div>
+            <button class="icon-btn" onclick={() => sidebarOpen = false} aria-label="Close menu">
+              <Icon name="close" size={20} />
+            </button>
+          </div>
+          <nav class="drawer-nav">
+            {#each tabs as tab}
+              <button
+                class:active={activeTab === tab.key}
+                onclick={() => { activeTab = tab.key; sidebarOpen = false; }}
+              >
+                <Icon name={tab.icon} size={18} />
+                <span>{tab.label}</span>
+              </button>
+            {/each}
+          </nav>
+          <div class="drawer-footer">
+            <button class="refresh-btn" onclick={() => { fetchMedia(); sidebarOpen = false; }}>
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
+    {/if}
 
+    <nav class="mobile-tabs" aria-label="Library categories">
+      {#each tabs as tab}
+        <button
+          class:active={activeTab === tab.key}
+          onclick={() => activeTab = tab.key}
+        >
+          {tab.label}
+        </button>
+      {/each}
+    </nav>
+  {:else}
+    <aside class="sidebar">
+      <div class="logo">
+        <Icon name="logo" size={22} />
+        <span class="logo-text">MSP</span>
+      </div>
+
+      <nav class="side-nav" aria-label="Library categories">
+        {#each tabs as tab}
+          <button
+            class:active={activeTab === tab.key}
+            onclick={() => activeTab = tab.key}
+            aria-current={activeTab === tab.key ? 'page' : undefined}
+          >
+            <Icon name={tab.icon} size={18} />
+            <span>{tab.label}</span>
+          </button>
+        {/each}
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="refresh-btn" onclick={fetchMedia}>
+          Refresh
+        </button>
+      </div>
+    </aside>
+  {/if}
+
+  <div class="main-content">
+    {#if !isMobile}
+      <header class="search-header">
+        <div class="search-box">
+          <span class="search-icon">
+            <Icon name="search" size={18} />
+          </span>
+          <input
+            type="text"
+            placeholder="Search..."
+            bind:value={searchQuery}
+          />
+        </div>
+        <div class="header-meta">
+          {filteredItems.length} items
+        </div>
+      </header>
+    {/if}
+
+    <section class="scroll-area" bind:this={scrollEl} onscroll={(e) => scrollTop = (e.currentTarget as HTMLElement).scrollTop}>
       {#if loading}
         <div class="status-view">
           <div class="loader"></div>
-          <p>Indexing your high-fidelity collection...</p>
+          <p>Loading...</p>
         </div>
       {:else if filteredItems.length === 0}
         <div class="status-view">
-          <p>No matches found in your library.</p>
+          <p>No items found.</p>
         </div>
       {:else}
-        <div class="media-grid">
-          {#each filteredItems.slice(0, displayLimit) as item}
-            <div class="media-card" onclick={() => handleCardClick(item)} role="button" tabindex="0">
-              <div class="card-preview" class:is-audio={item.kind === 'audio'}>
-                {#if item.kind === 'video'}
-                  <img src="http://localhost:3000/media/thumbnail?id={item.id}" alt={item.name} loading="lazy" />
-                  <div class="play-overlay">
-                    <div class="play-btn-circle">▶</div>
-                  </div>
-                {:else if item.kind === 'audio'}
-                  <img src="http://localhost:3000/media/thumbnail?id={item.id}" alt={item.name} class="audio-cover" />
-                  <div class="audio-wave">
-                    <span></span><span></span><span></span><span></span>
-                  </div>
-                {:else}
-                  <div class="card-icon">📄</div>
-                {/if}
-              </div>
-              <div class="card-info">
-                <div class="name" title={item.name}>{item.name}</div>
-                <div class="meta">
-                  <span class="ext">{item.ext}</span>
-                  <span class="dot">·</span>
-                  <span>{formatSize(item.size)}</span>
-                </div>
-              </div>
-            </div>
-          {/each}
-        </div>
-        
-        {#if displayLimit < filteredItems.length}
-          <div class="pagination">
-            <button class="load-more" onclick={() => displayLimit += 100}>
-              Discover More
-            </button>
+        <div class="virtual-container" style="height: {totalHeight}px" role="list" aria-label="Media items">
+          <div class="media-grid" style="top: {topOffset}px; --grid-cols: {gridCols}">
+            {#each visibleItems as item (item.id)}
+              <MediaCard {item} onClick={handleCardClick} onKey={handleCardKey} />
+            {/each}
           </div>
-        {/if}
+        </div>
       {/if}
     </section>
   </div>
 
   {#if selectedItem}
-    <VideoPlayer item={selectedItem} onClose={() => { selectedItem = null; fetchMedia(); }} />
+    {#key selectedItem.id}
+      <VideoPlayer
+        item={selectedItem}
+        onClose={() => { selectedItem = null; fetchMedia(); }}
+        onNext={handleNext}
+        onPrev={handlePrev}
+        playMode={playMode}
+        onToggleMode={handleToggleMode}
+        isAutoPlay={isAutoPlay}
+      />
+    {/key}
   {/if}
 </main>
 
@@ -185,65 +289,42 @@
     display: flex;
     height: 100vh;
     width: 100vw;
-    background: #050505;
+    background: #0a0a0f;
     color: var(--text-primary);
     overflow: hidden;
-    position: relative;
   }
 
-  .app-background {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at 50% -20%, #1e1e2e 0%, #050505 80%);
-    z-index: 0;
-  }
-
-  /* Sidebar */
+  /* ===== Desktop Sidebar ===== */
   .sidebar {
-    width: 280px;
-    background: rgba(10, 10, 15, 0.4);
-    backdrop-filter: blur(40px);
+    width: 220px;
+    background: rgba(255, 255, 255, 0.02);
     border-right: 1px solid rgba(255, 255, 255, 0.05);
     display: flex;
     flex-direction: column;
-    padding: 32px;
-    z-index: 10;
+    padding: 24px 16px;
+    flex-shrink: 0;
   }
 
   .logo {
     display: flex;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 48px;
+    gap: 10px;
+    margin-bottom: 32px;
+    padding: 0 8px;
+    color: var(--accent-color);
   }
 
-  .logo-circle {
-    width: 40px;
-    height: 40px;
-    background: var(--accent-color);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 8px 16px rgba(139, 92, 246, 0.3);
-  }
-
-  .logo-icon {
+  .logo-text {
     font-size: 1.2rem;
-    color: white;
-  }
-
-  .logo h2 {
-    margin: 0;
-    font-size: 1.4rem;
     font-weight: 800;
     letter-spacing: -0.02em;
+    color: var(--text-primary);
   }
 
   .side-nav {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 4px;
     flex: 1;
   }
 
@@ -251,87 +332,249 @@
     background: transparent;
     border: none;
     color: var(--text-secondary);
-    padding: 14px 18px;
+    padding: 10px 12px;
     text-align: left;
-    border-radius: 14px;
+    border-radius: 10px;
     cursor: pointer;
-    font-size: 0.95rem;
-    font-weight: 600;
+    font-size: 0.9rem;
+    font-weight: 500;
     display: flex;
     align-items: center;
-    gap: 14px;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    gap: 10px;
+    transition: background 0.15s ease;
   }
 
   .side-nav button:hover {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
-    transform: translateX(4px);
   }
 
   .side-nav button.active {
     background: var(--accent-color);
     color: white;
-    box-shadow: 0 10px 20px rgba(139, 92, 246, 0.2);
   }
 
   .sidebar-footer {
     margin-top: auto;
-    padding-top: 24px;
+    padding-top: 16px;
   }
 
   .refresh-btn {
     width: 100%;
     background: rgba(255, 255, 255, 0.05);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 14px;
-    border-radius: 14px;
-    font-weight: 700;
+    color: var(--text-secondary);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 10px;
+    border-radius: 10px;
+    font-weight: 600;
     cursor: pointer;
-    transition: 0.2s;
+    transition: all 0.15s ease;
+    font-size: 0.85rem;
   }
 
   .refresh-btn:hover {
     background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
   }
 
-  /* Main Content */
+  /* ===== Mobile Header ===== */
+  .mobile-header {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    background: rgba(10, 10, 15, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    z-index: 100;
+    align-items: center;
+    padding: 0 12px;
+    gap: 10px;
+  }
+
+  .icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .icon-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+  }
+
+  .mobile-search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 0 10px;
+    height: 34px;
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .mobile-search input {
+    background: none;
+    border: none;
+    color: white;
+    width: 100%;
+    outline: none;
+    font-size: 0.85rem;
+  }
+
+  /* ===== Mobile Drawer ===== */
+  .drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 200;
+    display: flex;
+  }
+
+  .mobile-drawer {
+    width: 260px;
+    height: 100%;
+    background: #0f0f14;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px;
+    animation: slideIn 0.2s ease;
+  }
+
+  @keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+
+  .drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding: 0 8px;
+    color: var(--accent-color);
+  }
+
+  .drawer-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+  }
+
+  .drawer-nav button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 10px 12px;
+    text-align: left;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .drawer-nav button.active {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  .drawer-footer {
+    margin-top: auto;
+    padding-top: 16px;
+  }
+
+  /* ===== Mobile Tabs ===== */
+  .mobile-tabs {
+    display: none;
+    position: fixed;
+    top: 52px;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: rgba(10, 10, 15, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    z-index: 99;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .mobile-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .mobile-tabs button.active {
+    background: var(--accent-color);
+    color: white;
+  }
+
+  /* ===== Main Content ===== */
   .main-content {
     flex: 1;
     display: flex;
     flex-direction: column;
-    z-index: 10;
-    position: relative;
+    min-width: 0;
   }
 
   .search-header {
-    height: 90px;
-    padding: 0 40px;
+    height: 64px;
+    padding: 0 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: rgba(5, 5, 5, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    flex-shrink: 0;
   }
 
   .search-box {
     background: rgba(255, 255, 255, 0.04);
-    padding: 0 20px;
-    border-radius: 16px;
+    padding: 0 14px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
-    gap: 14px;
-    width: 440px;
-    height: 50px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    transition: 0.3s;
+    gap: 10px;
+    width: 320px;
+    max-width: 100%;
+    height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    transition: border-color 0.2s ease;
   }
 
   .search-box:focus-within {
-    background: rgba(255, 255, 255, 0.08);
     border-color: var(--accent-color);
-    width: 480px;
   }
 
   .search-box input {
@@ -340,240 +583,99 @@
     color: white;
     width: 100%;
     outline: none;
-    font-size: 0.95rem;
-    font-weight: 500;
+    font-size: 0.9rem;
   }
 
-  .search-icon { color: rgba(255, 255, 255, 0.3); }
+  .search-icon {
+    color: rgba(255, 255, 255, 0.3);
+    flex-shrink: 0;
+  }
 
-  .user-info {
+  .header-meta {
     font-size: 0.85rem;
     color: var(--text-dim);
-  }
-
-  .server-status {
-    background: rgba(74, 222, 128, 0.1);
-    padding: 8px 16px;
-    border-radius: 30px;
-    color: #4ade80;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    background: currentColor;
-    border-radius: 50%;
-  }
-
-  .pulse { animation: pulse 2s infinite; }
-  @keyframes pulse {
-    0% { opacity: 1; }
-    50% { opacity: 0.4; }
-    100% { opacity: 1; }
+    font-weight: 500;
   }
 
   .scroll-area {
     flex: 1;
     overflow-y: auto;
-    padding: 40px;
+    padding: 24px;
+    scrollbar-width: none;
   }
 
-  .view-header {
-    margin-bottom: 40px;
+  .scroll-area::-webkit-scrollbar {
+    display: none;
   }
 
-  .view-header h3 {
-    font-size: 2.4rem;
-    font-weight: 900;
-    margin: 0;
-    letter-spacing: -0.04em;
-    background: linear-gradient(to bottom, #fff, #888);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .subtitle {
-    color: var(--text-dim);
-    margin: 8px 0 0;
-    font-weight: 600;
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-  }
-
-  /* Grid */
-  .media-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 32px;
-  }
-
-  .media-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 24px;
-    overflow: hidden;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: pointer;
+  /* ===== Virtual Grid ===== */
+  .virtual-container {
     position: relative;
-  }
-
-  .media-card:hover {
-    transform: translateY(-12px) scale(1.02);
-    border-color: var(--accent-color);
-    background: rgba(255, 255, 255, 0.07);
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
-  }
-
-  .card-preview {
-    position: relative;
-    aspect-ratio: 16 / 10;
-    background: #000;
-    overflow: hidden;
-  }
-
-  .card-preview img {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: 0.6s;
   }
 
-  .media-card:hover .card-preview img {
-    transform: scale(1.1);
-  }
-
-  .play-overlay {
+  .media-grid {
     position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: 0.3s;
+    left: 0;
+    right: 0;
+    display: grid;
+    grid-template-columns: repeat(var(--grid-cols), 1fr);
+    gap: 20px;
   }
-
-  .media-card:hover .play-overlay { opacity: 1; }
-
-  .play-btn-circle {
-    width: 60px;
-    height: 60px;
-    background: var(--accent-color);
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 1.5rem;
-    transform: scale(0.8);
-    transition: 0.3s;
-  }
-
-  .media-card:hover .play-btn-circle { transform: scale(1); }
-
-  .audio-wave {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    display: flex;
-    gap: 3px;
-  }
-
-  .audio-wave span {
-    width: 3px;
-    height: 15px;
-    background: var(--accent-color);
-    border-radius: 3px;
-    animation: wave 1s infinite ease-in-out;
-  }
-
-  .audio-wave span:nth-child(2) { animation-delay: 0.1s; height: 25px; }
-  .audio-wave span:nth-child(3) { animation-delay: 0.2s; height: 18px; }
-  .audio-wave span:nth-child(4) { animation-delay: 0.3s; height: 22px; }
-
-  @keyframes wave {
-    0%, 100% { transform: scaleY(1); }
-    50% { transform: scaleY(0.5); }
-  }
-
-  .card-info { padding: 24px; }
-
-  .name {
-    font-weight: 700;
-    font-size: 1.1rem;
-    margin-bottom: 8px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    letter-spacing: -0.02em;
-  }
-
-  .meta {
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 600;
-  }
-
-  .ext {
-    text-transform: uppercase;
-    color: var(--accent-color);
-  }
-
-  .dot { margin: 0 2px; }
 
   .status-view {
-    height: 400px;
+    height: 300px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     color: var(--text-dim);
+    gap: 16px;
   }
 
   .loader {
-    width: 48px;
-    height: 48px;
-    border: 3px solid rgba(255, 255, 255, 0.05);
+    width: 36px;
+    height: 36px;
+    border: 2px solid rgba(255, 255, 255, 0.06);
     border-top-color: var(--accent-color);
     border-radius: 50%;
-    animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-    margin-bottom: 32px;
+    animation: spin 0.8s linear infinite;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .pagination {
-    display: flex;
-    justify-content: center;
-    padding: 60px 0;
+  /* ===== Responsive ===== */
+  @media (max-width: 768px) {
+    .app-container {
+      flex-direction: column;
+    }
+
+    .mobile-header,
+    .mobile-tabs {
+      display: flex;
+    }
+
+    .main-content {
+      margin-top: 92px; /* header + tabs */
+      height: calc(100vh - 92px);
+    }
+
+    .search-header {
+      display: none;
+    }
+
+    .scroll-area {
+      padding: 12px;
+    }
+
+    .media-grid {
+      gap: 10px;
+    }
   }
 
-  .load-more {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: white;
-    padding: 16px 48px;
-    border-radius: 40px;
-    cursor: pointer;
-    font-weight: 800;
-    font-size: 1rem;
-    transition: 0.3s;
-  }
-
-  .load-more:hover {
-    background: var(--accent-color);
-    border-color: var(--accent-color);
-    box-shadow: 0 10px 20px rgba(139, 92, 246, 0.2);
-    transform: translateY(-2px);
+  @media (max-width: 480px) {
+    .media-grid {
+      gap: 8px;
+    }
   }
 </style>
-

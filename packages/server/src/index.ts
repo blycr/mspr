@@ -4,7 +4,6 @@ import { configManager } from './config/manager.js';
 import { mediaRoutes } from './routes/media.js';
 import { personalRoutes } from './routes/personal.js';
 import { hwAccelDetector } from './streaming/hw-accel-detector.js';
-
 import { scannerEngine } from './scanner/engine.js';
 
 // Background initialization
@@ -20,7 +19,7 @@ const app = new Elysia()
   .use(personalRoutes)
   .listen(configManager.get().port);
 
-console.log(`🚀 MSP Server running at http://localhost:${app.server?.port}`);
+console.log(`[Server] MSP running at http://localhost:${app.server?.port}`);
 
 export type App = typeof app;
 

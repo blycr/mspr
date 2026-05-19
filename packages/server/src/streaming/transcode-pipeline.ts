@@ -4,9 +4,52 @@ import { ProbeResult } from '@mspr/shared';
 export class TranscodePipeline {
   public async transcode(filePath: string, probe: ProbeResult, offset: number = 0): Promise<Response> {
     const hw = hwAccelDetector.getResult();
-    
+
+    // --- Audio-only path: output MP3 for maximum browser compatibility ---
+    if (!probe.videoCodec) {
+      const args = [
+        'ffmpeg',
+        '-hide_banner',
+        '-y',
+        '-loglevel', 'warning',
+      ];
+
+      if (offset > 0) {
+        args.push('-ss', offset.toString());
+      }
+
+      args.push('-i', filePath);
+
+      if (probe.audioCodec) {
+        args.push('-map', '0:a:0');
+      }
+
+      args.push('-c:a', 'libmp3lame', '-b:a', '192k', '-ac', '2');
+      args.push('-f', 'mp3', 'pipe:1');
+
+      console.log('[Transcode] Audio-only -> MP3:', args.join(' '));
+
+      const process = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
+
+      // Collect stdout into a buffer (avoid ReadableStream issues)
+      const stdout = await new Response(process.stdout).arrayBuffer();
+      const stderr = await new Response(process.stderr).text();
+      if (stderr.includes('Error')) {
+        console.error('[Transcode] FFmpeg Error:', stderr);
+      }
+
+      return new Response(stdout, {
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'X-MSP-Transcode': 'active'
+        }
+      });
+    }
+
+    // --- Video path: output fragmented MP4 ---
     const args = [
       'ffmpeg',
+      '-hide_banner',
       '-y',
       '-loglevel', 'warning',
       '-ss', offset.toString(),
@@ -20,13 +63,11 @@ export class TranscodePipeline {
       args.push('-map', '0:a:0');
     }
 
-
-    // Video Codec Decision
     if (probe.needVideoTranscode || probe.strategy === 'remux') {
       if (hw.preferred !== 'cpu') {
         const encoder = hw.encoderMap[hw.preferred];
         args.push('-c:v', encoder);
-        if (hw.preferred === 'nvenc') args.push('-preset', 'p4', '-crf', '23');
+        if (hw.preferred === 'nvenc') args.push('-preset', 'p4', '-cq', '23');
         else if (hw.preferred === 'qsv') args.push('-preset', 'medium');
       } else {
         args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23');
@@ -35,65 +76,31 @@ export class TranscodePipeline {
       args.push('-c:v', 'copy');
     }
 
-    // Audio Codec Decision
     if (probe.needAudioTranscode) {
       args.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
-    } else {
+    } else if (probe.audioCodec) {
       args.push('-c:a', 'copy');
     }
 
-    // fMP4 flags for rapid start and streaming
     args.push(
       '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
       '-f', 'mp4',
       'pipe:1'
     );
 
-    console.log('🎬 Starting transcode:', args.join(' '));
+    console.log('[Transcode] Video -> fMP4:', args.join(' '));
 
-    const process = Bun.spawn(args, {
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+    const process = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
 
-    // Handle process termination when client disconnects
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = process.stdout.getReader();
-        const errReader = process.stderr.getReader();
+    const stdout = await new Response(process.stdout).arrayBuffer();
+    const stderr = await new Response(process.stderr).text();
+    if (stderr.includes('Error')) {
+      console.error('[Transcode] FFmpeg Error:', stderr);
+    }
 
-        // Log errors from FFmpeg
-        (async () => {
-          const { value } = await errReader.read();
-          if (value) {
-            const msg = new TextDecoder().decode(value);
-            if (msg.includes('Error')) console.error('❌ FFmpeg Error:', msg);
-          }
-        })();
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            controller.enqueue(value);
-          }
-          controller.close();
-        } catch (e) {
-
-          controller.error(e);
-          process.kill();
-        }
-      },
-      cancel() {
-        process.kill();
-        console.log('🛑 Transcode stopped (client disconnected)');
-      }
-    });
-
-    return new Response(stream, {
+    return new Response(stdout, {
       headers: {
-        'Content-Type': probe.videoCodec ? 'video/mp4' : 'audio/mpeg',
-        'Transfer-Encoding': 'chunked',
+        'Content-Type': 'video/mp4',
         'X-MSP-Transcode': 'active'
       }
     });
