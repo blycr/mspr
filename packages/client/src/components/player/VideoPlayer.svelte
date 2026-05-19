@@ -72,57 +72,73 @@
   });
 </script>
 
-<div class="player-overlay">
-  <div class="player-content" class:audio-mode={item.kind === 'audio'}>
-    <header class="player-header">
-      <span class="title">{item.name}</span>
-      <div class="badges">
-        {#if isTranscoding}
-          <span class="badge">Transcoding</span>
-        {/if}
-        <span class="badge kind">{item.kind}</span>
-      </div>
-      <button class="close-btn" onclick={() => { saveProgress(); onClose(); }}>✕</button>
-    </header>
+<div class="player-overlay" transition:fade>
+  <div class="player-container" class:audio-mode={item.kind === 'audio'}>
+    {#if item.kind === 'audio'}
+      <div class="player-bg" style="background-image: url('http://localhost:3000/media/thumbnail?id={item.id}')"></div>
+    {/if}
 
-    <div class="player-body">
-      <div class="video-wrapper">
-        {#if error}
-          <div class="error-msg">{error}</div>
-        {:else if src}
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video
-            bind:this={videoElement}
-            {src}
-            controls
-            autoplay
-            ontimeupdate={() => currentTime = videoElement?.currentTime || 0}
-            onerror={handleVideoError}
-          >
-            {#each item.subtitles || [] as sub}
-              <track kind="subtitles" src={sub.src} label={sub.label} default={sub.default} />
-            {/each}
-          </video>
+    <div class="player-content">
+      <header class="player-header">
+        <div class="item-info">
+          <span class="badge kind">{item.kind}</span>
+          <h2 class="title">{item.name}</h2>
+          {#if isTranscoding}
+            <span class="badge transcoding">Transcoding Stream</span>
+          {/if}
+        </div>
+        <button class="close-btn" onclick={() => { saveProgress(); onClose(); }} aria-label="Close Player">
+          <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </header>
 
-          {#if showResumePrompt}
-            <div class="resume-prompt">
-              <span>Resume from {Math.floor(savedTime / 60)}:{(Math.floor(savedTime % 60)).toString().padStart(2, '0')}?</span>
-              <div class="prompt-btns">
-                <button onclick={resume}>Yes</button>
-                <button class="no" onclick={() => showResumePrompt = false}>No</button>
-              </div>
+      <div class="player-main">
+        <div class="visual-section">
+          {#if error}
+            <div class="error-msg">
+              <span class="error-icon">⚠️</span>
+              <p>{error}</p>
+            </div>
+          {:else if src}
+            <div class="media-wrapper">
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <video
+                bind:this={videoElement}
+                {src}
+                controls
+                autoplay
+                ontimeupdate={() => currentTime = videoElement?.currentTime || 0}
+                onerror={handleVideoError}
+              >
+                {#each item.subtitles || [] as sub}
+                  <track kind="subtitles" src={sub.src} label={sub.label} default={sub.default} />
+                {/each}
+              </video>
+
+              {#if showResumePrompt}
+                <div class="resume-toast">
+                  <p>Resume from <strong>{Math.floor(savedTime / 60)}:{(Math.floor(savedTime % 60)).toString().padStart(2, '0')}</strong>?</p>
+                  <div class="toast-actions">
+                    <button class="btn-primary" onclick={resume}>Resume</button>
+                    <button class="btn-ghost" onclick={() => showResumePrompt = false}>Dismiss</button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <div class="loading-state">
+              <div class="shimmer"></div>
+              <p>Preparing High-Quality Stream...</p>
             </div>
           {/if}
-        {:else}
-          <div class="loading">Preparing stream...</div>
+        </div>
+
+        {#if item.kind === 'audio' && item.lyricsId}
+          <div class="lyrics-section">
+            <LyricsOverlay lyricId={item.lyricsId} {currentTime} />
+          </div>
         {/if}
       </div>
-
-      {#if item.kind === 'audio' && item.lyricsId}
-        <div class="lyrics-wrapper">
-          <LyricsOverlay lyricId={item.lyricsId} {currentTime} />
-        </div>
-      {/if}
     </div>
   </div>
 </div>
@@ -130,144 +146,214 @@
 <style>
   .player-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.9);
-    backdrop-filter: blur(20px);
+    inset: 0;
+    background: rgba(0, 0, 0, 0.95);
     z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 20px;
+  }
+
+  .player-container {
+    width: 100%;
+    max-width: 1200px;
+    height: 90vh;
+    background: #0a0a0c;
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8);
+  }
+
+  .player-bg {
+    position: absolute;
+    inset: -50px;
+    background-size: cover;
+    background-position: center;
+    filter: blur(60px) brightness(0.3);
+    opacity: 0.6;
+    z-index: 0;
   }
 
   .player-content {
-    width: 90%;
-    max-width: 1100px;
-    background: var(--surface-color);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-  }
-
-  .audio-mode {
-    max-width: 900px;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
   }
 
   .player-header {
-    padding: var(--gap-md);
-    background: var(--glass-bg);
+    padding: 24px 32px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--glass-border);
+    background: linear-gradient(to bottom, rgba(0,0,0,0.5), transparent);
   }
 
-  .badges {
+  .item-info {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: -0.02em;
   }
 
   .badge {
-    background: var(--accent-color);
+    padding: 4px 10px;
+    border-radius: 6px;
     font-size: 0.7rem;
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-weight: 800;
     text-transform: uppercase;
-    font-weight: 700;
+    letter-spacing: 0.05em;
   }
 
   .badge.kind {
-    background: var(--surface-hover);
-    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
   }
 
-  .player-body {
-    display: flex;
-    flex-direction: column;
+  .badge.transcoding {
+    background: #f59e0b;
+    color: black;
   }
 
-  .audio-mode .player-body {
-    flex-direction: row;
-    height: 500px;
-  }
-
-  .video-wrapper {
-    position: relative;
-    aspect-ratio: 16 / 9;
-    background: black;
+  .close-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: 1;
+    cursor: pointer;
+    transition: 0.2s;
   }
 
-  .audio-mode .video-wrapper {
-    aspect-ratio: 1 / 1;
-    max-width: 400px;
+  .close-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.1);
+  }
+
+  .player-main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  .audio-mode .player-main {
+    flex-direction: row;
+  }
+
+  .visual-section {
+    flex: 1.5;
+    background: black;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .audio-mode .visual-section {
+    flex: 1;
+    background: transparent;
+    padding: 40px;
+  }
+
+  .media-wrapper {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  .audio-mode .media-wrapper {
+    aspect-ratio: 1;
+    max-width: 500px;
+    border-radius: 20px;
+    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    overflow: hidden;
   }
 
   video {
     width: 100%;
     height: 100%;
+    object-fit: contain;
   }
 
-  .lyrics-wrapper {
+  .lyrics-section {
     flex: 1;
-    background: var(--bg-color);
-    border-left: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.3);
+    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
   }
 
-  .resume-prompt {
+  .resume-toast {
     position: absolute;
-    bottom: 80px;
+    bottom: 40px;
     left: 50%;
     transform: translateX(-50%);
-    background: var(--glass-bg);
-    backdrop-filter: var(--glass-blur);
-    padding: 12px 24px;
-    border-radius: var(--radius-md);
+    background: rgba(20, 20, 22, 0.95);
+    padding: 16px 24px;
+    border-radius: 16px;
     border: 1px solid var(--accent-color);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    animation: slideUp 0.4s ease;
-    z-index: 10;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    z-index: 100;
+    text-align: center;
   }
 
-  @keyframes slideUp {
-    from { transform: translate(-50%, 20px); opacity: 0; }
-    to { transform: translate(-50%, 0); opacity: 1; }
-  }
-
-  .prompt-btns {
+  .toast-actions {
     display: flex;
     gap: 12px;
+    margin-top: 12px;
+    justify-content: center;
   }
 
-  .prompt-btns button {
+  .btn-primary {
     background: var(--accent-color);
     color: white;
     border: none;
-    padding: 6px 16px;
-    border-radius: 4px;
-    cursor: pointer;
+    padding: 8px 20px;
+    border-radius: 8px;
     font-weight: 600;
-  }
-
-  .prompt-btns button.no {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 1.2rem;
     cursor: pointer;
   }
+
+  .btn-ghost {
+    background: transparent;
+    color: rgba(255,255,255,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 8px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+
+  .loading-state {
+    text-align: center;
+    color: rgba(255,255,255,0.4);
+  }
+
+  .shimmer {
+    width: 60px;
+    height: 60px;
+    border: 4px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
