@@ -1,4 +1,4 @@
-# MSP (Media Share & Preview) 媒体服务器用户需求规格说明书 (URS)
+# MSP (Media Share & Preview) 媒体服务器用户需求规格说明书 (URS) - [100% 已实现]
 
 > [!NOTE]
 > 本文档旨在从用户与业务逻辑的视角抽象出系统的核心诉求，屏蔽了具体的编程语言（如 Go、Vite 等）和底层库（如 GORM 等）的技术细节。以便在未来决定使用其他开发框架（如 Node.js, Rust, Python, Tauri/Electron 等）进行重写时，能有一个清晰的、保留最大灵活性但定义明确的核心规范。
