@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "bun scripts/dev.mjs",
     "start": "bun scripts/start.mjs",
+    "serve": "bun scripts/start.mjs",
     "build": "bun --filter \"*\" build",
     "dev:server": "bun --filter @mspr/server dev",
     "dev:client": "bun --filter @mspr/client dev"

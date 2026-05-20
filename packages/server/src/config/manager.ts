@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { AppConfig } from '@mspr/shared';
 
-const CONFIG_PATH = path.resolve(process.cwd(), 'data', 'config.json');
+const CONFIG_PATH = path.resolve(import.meta.dir, '../../data', 'config.json');
 
 const DEFAULT_CONFIG: AppConfig = {
   shares: [],

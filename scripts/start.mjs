@@ -4,14 +4,14 @@ import path from 'node:path';
 import os from 'os';
 
 const PID_FILE = path.join(import.meta.dir, '.pids');
-const serverDir = path.resolve(import.meta.dir, '../packages/server');
+
 const B = '\x1b[1m';
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RESET = '\x1b[0m';
 
-function getLanIps() {
+function getLanIPs() {
   const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer|mihomo|clash|v2ray|shadowsocks|sing-box|proxifier/i;
   const linkLocal = /^169\.254\./;
   const benchmarkNet = /^198\.1[89]\./;
@@ -27,7 +27,7 @@ function getLanIps() {
   return results;
 }
 
-const lanIps = getLanIps();
+const lanIps = getLanIPs();
 
 // Clean up previous builds and lingering processes first
 await import('./cleanup.mjs');
@@ -42,9 +42,8 @@ if (build.exitCode !== 0) {
 }
 
 console.log('[Start] Starting server...');
-const server = spawn('bun', ['src/index.ts'], {
+const server = spawn('bun', ['packages/server/src/index.ts'], {
   stdio: 'inherit',
-  cwd: serverDir,
 });
 
 fs.writeFileSync(PID_FILE, JSON.stringify([server.pid]));

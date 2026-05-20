@@ -1,24 +1,30 @@
 import { ProbeResult } from '@mspr/shared';
 import db from '../db/sqlite.js';
-import path from 'path';
+import { resolveMediaPath } from '../utils/media-path.js';
 
 export class ProbeEngine {
   public async probe(mediaId: string): Promise<ProbeResult | null> {
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(mediaId) as any;
     if (!item) return null;
 
-    // Get actual path (need to match shareLabel back to config path)
-    // For Phase 2, we assume we can resolve the path. 
-    // In a real implementation, we'd look up the share path.
-    // Let's assume for now we store absolute path or can resolve it.
-    // Optimization: Add 'fullPath' to MediaItem in DB if needed.
-    // For now, let's look up share in config.
-    const { configManager } = await import('../config/manager.js');
-    const config = configManager.get();
-    const share = config.shares.find(s => s.label === item.shareLabel);
-    if (!share) return null;
+    const fullPath = resolveMediaPath(item);
+    if (!fullPath) return null;
 
-    const fullPath = path.join(share.path, item.relPath);
+    // Images are served directly without probing
+    if (item.kind === 'image') {
+      return {
+        mediaId,
+        strategy: 'direct' as const,
+        container: item.ext,
+        videoCodec: null,
+        audioCodec: null,
+        needVideoTranscode: false,
+        needAudioTranscode: false,
+        duration: 0,
+        width: null,
+        height: null
+      };
+    }
 
     try {
       const process = Bun.spawn([

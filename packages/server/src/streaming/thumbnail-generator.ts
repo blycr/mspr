@@ -1,12 +1,13 @@
 import path from 'path';
 import fs from 'fs';
+import db from '../db/sqlite.js';
+import { configManager } from '../config/manager.js';
+import { resolveMediaPath } from '../utils/media-path.js';
 
 export class ThumbnailGenerator {
   public async getThumbnail(mediaId: string): Promise<Response> {
-    const { configManager } = await import('../config/manager.js');
-    const { default: db } = await import('../db/sqlite.js');
 
-    const CACHE_DIR = path.resolve(process.cwd(), 'data', 'thumbnails');
+    const CACHE_DIR = path.resolve(import.meta.dir, '../../data', 'thumbnails');
     if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
     const cachePath = path.join(CACHE_DIR, `${mediaId}.webp`);
@@ -18,11 +19,8 @@ export class ThumbnailGenerator {
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(mediaId) as any;
     if (!item) return new Response('Not found', { status: 404 });
 
-    const config = configManager.get();
-    const share = config.shares.find(s => s.label === item.shareLabel);
-    if (!share) return new Response('Share not found', { status: 404 });
-
-    const fullPath = path.join(share.path, item.relPath);
+    const fullPath = resolveMediaPath(item);
+    if (!fullPath) return new Response('Share not found', { status: 404 });
 
     // Audio: try to extract embedded cover art, or generate a waveform-style placeholder
     if (item.kind === 'audio') {

@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import path from 'path';
 import fs from 'fs';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = path.resolve(import.meta.dir, '../../data');
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }

@@ -8,7 +8,7 @@ import { personalRoutes } from './routes/personal.js';
 import { hwAccelDetector } from './streaming/hw-accel-detector.js';
 import { scannerEngine } from './scanner/engine.js';
 
-function getLanIps(): string[] {
+function getLanIPs(): string[] {
   const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer|mihomo|clash|v2ray|shadowsocks|sing-box|proxifier/i;
   const linkLocal = /^169\.254\./;
   const benchmarkNet = /^198\.1[89]\./;
@@ -61,7 +61,7 @@ if (Bun.file(distIndex).size > 0) {
 app.listen(configManager.get().port);
 
 const port = app.server?.port;
-const lanIps = getLanIps();
+const lanIps = getLanIPs();
 const BOLD = '\x1b[1m';
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';

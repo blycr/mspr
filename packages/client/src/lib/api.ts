@@ -1,40 +1,53 @@
-import type { MediaItem } from '@mspr/shared';
-
-const API_BASE = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:3000`
-  : ((import.meta as any).env?.VITE_API_URL || 'http://localhost:3000');
+const API_BASE = `http://${window.location.hostname}:3000`;
 
 export const api = {
   baseUrl: API_BASE,
 
-  async fetchMedia(): Promise<MediaItem[]> {
+  async fetchMedia(): Promise<import('@mspr/shared').MediaItem[]> {
     const res = await fetch(`${API_BASE}/media`);
+    if (!res.ok) throw new Error('Failed to fetch media');
     return res.json();
   },
 
-  async fetchHistory(): Promise<MediaItem[]> {
+  async refreshMedia(): Promise<void> {
+    const res = await fetch(`${API_BASE}/media/refresh`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to refresh media');
+  },
+
+  async fetchHistory(): Promise<import('@mspr/shared').MediaItem[]> {
     const res = await fetch(`${API_BASE}/personal/history`);
+    if (!res.ok) throw new Error('Failed to fetch history');
     return res.json();
   },
 
-  async fetchProgress(id: string): Promise<{ time: number }> {
-    const res = await fetch(`${API_BASE}/personal/progress?id=${id}`);
+  async clearHistory(): Promise<void> {
+    const res = await fetch(`${API_BASE}/personal/history`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to clear history');
+  },
+
+  async fetchProgress(mediaId: string): Promise<{ time: number }> {
+    const res = await fetch(`${API_BASE}/personal/progress?id=${mediaId}`);
+    if (!res.ok) return { time: 0 };
     return res.json();
   },
 
-  async saveProgress(id: string, time: number): Promise<void> {
+  async saveProgress(mediaId: string, time: number): Promise<void> {
     await fetch(`${API_BASE}/personal/progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, time })
+      body: JSON.stringify({ id: mediaId, time }),
     });
   },
 
-  thumbnailUrl(id: string): string {
-    return `${API_BASE}/media/thumbnail?id=${id}`;
+  thumbnailUrl(mediaId: string): string {
+    return `${API_BASE}/media/thumbnail?id=${mediaId}`;
   },
 
-  subtitleUrl(id: string): string {
-    return `${API_BASE}/media/subtitle?id=${id}`;
-  }
+  imageUrl(mediaId: string): string {
+    return `${API_BASE}/media/stream?id=${mediaId}`;
+  },
+
+  subtitleUrl(mediaId: string): string {
+    return `${API_BASE}/media/subtitle?id=${mediaId}`;
+  },
 };

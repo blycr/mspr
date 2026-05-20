@@ -53,8 +53,8 @@
 
 <style>
   .media-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 14px;
     overflow: hidden;
     transition: transform 0.2s ease, border-color 0.2s ease;
@@ -77,7 +77,7 @@
   .card-preview {
     position: relative;
     aspect-ratio: 16 / 10;
-    background: #111;
+    background: var(--preview-bg);
     overflow: hidden;
   }
 
@@ -151,7 +151,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    background: var(--placeholder-gradient);
   }
 
   .placeholder-letter {
@@ -188,7 +188,7 @@
     font-weight: 700;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 640px) {
     .media-card {
       border-radius: 10px;
       contain-intrinsic-size: auto 220px;

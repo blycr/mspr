@@ -10,7 +10,7 @@ const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RESET = '\x1b[0m';
 
-function getLanIps() {
+function getLanIPs() {
   const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer|mihomo|clash|v2ray|shadowsocks|sing-box|proxifier/i;
   const linkLocal = /^169\.254\./;
   const benchmarkNet = /^198\.1[89]\./;
@@ -26,19 +26,20 @@ function getLanIps() {
   return results;
 }
 
-const lanIps = getLanIps();
-const lanText = lanIps.length > 0 ? ` (LAN: ${lanIps[0]})` : '';
+const lanIps = getLanIPs();
+const lanUrl = lanIps.length > 0 ? `  (LAN: ${B}${GREEN}http://${lanIps[0]}:5173${RESET})` : '';
 
 // Clean up previous builds and lingering processes first
 await import('./cleanup.mjs');
 
-console.log('[Dev] Starting server + client...');
-console.log(`[Dev] Server  ${B}${CYAN}http://localhost:3000${RESET}${lanText}`);
-console.log(`[Dev] Client  ${B}${GREEN}http://localhost:5173${RESET}`);
-console.log('[Dev] Press Ctrl+C to stop both\n');
+const backendUrl = `${CYAN}http://localhost:3000${RESET}`;
+const clientUrl = `${GREEN}http://localhost:5173${RESET}`;
 
-const server = spawn('bun', ['run', 'dev:server'], { stdio: 'inherit' });
-const client = spawn('bun', ['run', 'dev:client'], { stdio: 'inherit' });
+console.log(`Backend  ${backendUrl}`);
+console.log(`Client   ${clientUrl}${lanUrl}\n`);
+
+const server = spawn('bun', ['--watch', 'packages/server/src/index.ts'], { stdio: 'inherit' });
+const client = spawn('bun', ['--cwd', 'packages/client', 'dev'], { stdio: 'inherit' });
 
 fs.writeFileSync(PID_FILE, JSON.stringify([server.pid, client.pid]));
 
@@ -74,11 +75,4 @@ function cleanup(signal) {
 process.on('SIGINT', () => cleanup('SIGINT'));
 process.on('SIGTERM', () => cleanup('SIGTERM'));
 
-// Print a bold reminder after things settle
-setTimeout(() => {
-  console.log(`\n${YELLOW}>>>${RESET} ${B}Server${RESET}  ${CYAN}http://localhost:3000${RESET}`);
-  if (lanIps.length > 0) {
-    console.log(`${YELLOW}>>>${RESET} ${B}LAN   ${RESET}  ${GREEN}http://${lanIps[0]}:3000${RESET}`);
-  }
-  console.log(`${YELLOW}>>>${RESET} ${B}Client${RESET}  ${GREEN}http://localhost:5173${RESET}  ${YELLOW}<<<${RESET}\n`);
-}, 2000);
+

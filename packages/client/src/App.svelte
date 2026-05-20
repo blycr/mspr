@@ -2,10 +2,12 @@
   import { onMount } from 'svelte';
   import type { MediaItem } from '@mspr/shared';
   import VideoPlayer from './components/player/VideoPlayer.svelte';
+  import ImageViewer from './components/ImageViewer.svelte';
   import MediaCard from './components/MediaCard.svelte';
   import Icon from './components/Icon.svelte';
   import { api } from './lib/api.js';
   import { playlistManager } from './lib/player/playlist.js';
+  import { matchesQuery } from './lib/search.js';
   import './styles/tokens.css';
 
   let items = $state<MediaItem[]>([]);
@@ -13,11 +15,19 @@
   let loading = $state(true);
   let selectedItem = $state<MediaItem | null>(null);
   let searchQuery = $state('');
-  let activeTab = $state<'all' | 'video' | 'audio' | 'image' | 'history'>('all');
-  let isMobile = $state(false);
+
+  let activeTab = $state<'video' | 'audio' | 'image' | 'history'>('video');
+  let theme = $state<'light' | 'dark'>('dark');
+  let forceLayout = $state<'desktop' | 'mobile' | null>(null);
+  let windowWidth = $state(0);
   let sidebarOpen = $state(false);
   let playMode = $state<'loop' | 'shuffle' | 'repeat-one'>(playlistManager.mode);
   let isAutoPlay = $state(false);
+
+  /* Image viewer state */
+  let imageItems = $state<MediaItem[]>([]);
+  let imageIndex = $state(0);
+  let imageViewerOpen = $state(false);
 
   /* Virtual scroll state */
   let scrollEl = $state<HTMLElement | null>(null);
@@ -28,8 +38,11 @@
   const ROW_HEIGHT_DESKTOP = 280;
   const ROW_HEIGHT_MOBILE = 220;
   const BUFFER_ROWS = 4;
+  const MOBILE_BREAKPOINT = 640;
 
+  const isMobile = $derived(forceLayout === 'mobile' || (forceLayout === null && windowWidth <= MOBILE_BREAKPOINT));
   const rowHeight = $derived(isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP);
+
 
   const filteredItems = $derived.by(() => {
     let base = activeTab === 'history' ? history : items;
@@ -38,7 +51,7 @@
     if (activeTab === 'image') base = items.filter(i => i.kind === 'image');
 
     if (!searchQuery) return base;
-    return base.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    return base.filter(i => matchesQuery(i.name, searchQuery));
   });
 
   const totalRows = $derived(Math.ceil(filteredItems.length / gridCols));
@@ -59,6 +72,32 @@
     if (scrollEl) scrollEl.scrollTop = 0;
   });
 
+  /* Theme sync */
+  $effect(() => {
+    document.documentElement.dataset.theme = theme;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0a0a0f' : '#f0f0f5');
+  });
+
+  function initTheme() {
+    const saved = localStorage.getItem('msp-theme');
+    if (saved === 'light' || saved === 'dark') {
+      theme = saved;
+    } else {
+      const hour = new Date().getHours();
+      theme = hour >= 6 && hour < 18 ? 'light' : 'dark';
+    }
+  }
+
+  function toggleTheme() {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('msp-theme', theme);
+  }
+
+  function toggleLayout() {
+    forceLayout = isMobile ? 'desktop' : 'mobile';
+  }
+
   async function fetchMedia() {
     try {
       loading = true;
@@ -76,11 +115,12 @@
   }
 
   onMount(() => {
+    initTheme();
     fetchMedia();
-    const checkMobile = () => { isMobile = window.innerWidth <= 768; };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    const checkWidth = () => { windowWidth = window.innerWidth; };
+    checkWidth();
+    window.addEventListener('resize', checkWidth);
+    return () => window.removeEventListener('resize', checkWidth);
   });
 
   /* ResizeObserver: column count + viewport height */
@@ -92,7 +132,7 @@
         containerHeight = cr.height;
         const w = cr.width;
         if (w <= 480) gridCols = 2;
-        else if (w <= 768) gridCols = 2;
+        else if (w <= MOBILE_BREAKPOINT) gridCols = 2;
         else gridCols = Math.max(2, Math.floor(w / 220));
       }
     });
@@ -107,6 +147,19 @@
       playlistManager.setPlaylist(list, Math.max(0, idx));
       selectedItem = item;
       isAutoPlay = false;
+    } else if (item.kind === 'image') {
+      const list = items.filter(i => i.kind === 'image');
+      const idx = list.findIndex(i => i.id === item.id);
+      imageItems = list;
+      imageIndex = Math.max(0, idx);
+      imageViewerOpen = true;
+    }
+  }
+
+  function handleCardKey(event: KeyboardEvent, item: MediaItem) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleCardClick(item);
     }
   }
 
@@ -129,15 +182,16 @@
     playMode = playlistManager.mode;
   }
 
-  function handleCardKey(event: KeyboardEvent, item: MediaItem) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleCardClick(item);
+  async function clearHistory() {
+    try {
+      await api.clearHistory();
+      history = [];
+    } catch (e) {
+      console.error('Failed to clear history:', e);
     }
   }
 
   const tabs = [
-    { key: 'all' as const, label: 'All', icon: 'folder' as const },
     { key: 'video' as const, label: 'Videos', icon: 'video' as const },
     { key: 'audio' as const, label: 'Music', icon: 'music' as const },
     { key: 'image' as const, label: 'Images', icon: 'file' as const },
@@ -145,7 +199,7 @@
   ];
 </script>
 
-<main class="app-container">
+<main class="app-container" class:force-mobile={forceLayout === 'mobile'} class:force-desktop={forceLayout === 'desktop'}>
   {#if isMobile}
     <header class="mobile-header">
       <button class="icon-btn" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Menu">
@@ -156,11 +210,14 @@
         <Icon name="search" size={16} />
         <input type="text" placeholder="Search..." bind:value={searchQuery} />
       </div>
+      <button class="icon-btn" onclick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+        <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} />
+      </button>
     </header>
 
     {#if sidebarOpen}
       <div class="drawer-overlay" role="presentation" onclick={() => sidebarOpen = false}>
-        <div class="mobile-drawer" aria-label="Navigation menu" onclick={e => e.stopPropagation()}>
+        <div class="mobile-drawer" aria-label="Navigation menu" role="dialog" tabindex="-1" onclick={e => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') sidebarOpen = false; }}>
           <div class="drawer-header">
             <div style="display: flex; align-items: center; gap: 10px;">
               <Icon name="logo" size={22} />
@@ -182,24 +239,22 @@
             {/each}
           </nav>
           <div class="drawer-footer">
+            {#if activeTab === 'history'}
+              <button class="clear-btn" onclick={() => { clearHistory(); sidebarOpen = false; }}>
+                Clear Recent
+              </button>
+            {/if}
             <button class="refresh-btn" onclick={() => { fetchMedia(); sidebarOpen = false; }}>
               Refresh
+            </button>
+            <button class="layout-toggle" onclick={toggleLayout}>
+              <Icon name="desktop" size={16} />
+              <span>PC Mode</span>
             </button>
           </div>
         </div>
       </div>
     {/if}
-
-    <nav class="mobile-tabs" aria-label="Library categories">
-      {#each tabs as tab}
-        <button
-          class:active={activeTab === tab.key}
-          onclick={() => activeTab = tab.key}
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </nav>
   {:else}
     <aside class="sidebar">
       <div class="logo">
@@ -221,8 +276,17 @@
       </nav>
 
       <div class="sidebar-footer">
+        {#if activeTab === 'history'}
+          <button class="clear-btn" onclick={clearHistory}>
+            Clear Recent
+          </button>
+        {/if}
         <button class="refresh-btn" onclick={fetchMedia}>
           Refresh
+        </button>
+        <button class="layout-toggle" onclick={toggleLayout} title={isMobile ? 'Switch to PC mode' : 'Switch to Mobile mode'}>
+          <Icon name="smartphone" size={16} />
+          <span>Mobile Mode</span>
         </button>
       </div>
     </aside>
@@ -241,8 +305,13 @@
             bind:value={searchQuery}
           />
         </div>
-        <div class="header-meta">
-          {filteredItems.length} items
+        <div class="header-actions">
+          <button class="theme-toggle" onclick={toggleTheme} aria-label="Toggle theme" title={theme === 'dark' ? 'Light mode' : 'Dark mode'}>
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+          </button>
+          <div class="header-meta">
+            {filteredItems.length} items
+          </div>
         </div>
       </header>
     {/if}
@@ -282,6 +351,15 @@
       />
     {/key}
   {/if}
+
+  {#if imageViewerOpen}
+    <ImageViewer
+      items={imageItems}
+      currentIndex={imageIndex}
+      onClose={() => imageViewerOpen = false}
+      onNavigate={(idx) => imageIndex = idx}
+    />
+  {/if}
 </main>
 
 <style>
@@ -289,16 +367,17 @@
     display: flex;
     height: 100vh;
     width: 100vw;
-    background: #0a0a0f;
+    background: var(--app-bg);
     color: var(--text-primary);
     overflow: hidden;
+    transition: background 0.3s ease;
   }
 
   /* ===== Desktop Sidebar ===== */
   .sidebar {
     width: 220px;
-    background: rgba(255, 255, 255, 0.02);
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--sidebar-border);
     display: flex;
     flex-direction: column;
     padding: 24px 16px;
@@ -345,7 +424,7 @@
   }
 
   .side-nav button:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--btn-bg);
     color: var(--text-primary);
   }
 
@@ -357,13 +436,16 @@
   .sidebar-footer {
     margin-top: auto;
     padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .refresh-btn {
     width: 100%;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--btn-bg);
     color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--btn-border);
     padding: 10px;
     border-radius: 10px;
     font-weight: 600;
@@ -373,8 +455,49 @@
   }
 
   .refresh-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--btn-bg-hover);
     color: var(--text-primary);
+  }
+
+  .layout-toggle {
+    width: 100%;
+    background: var(--btn-bg);
+    color: var(--text-secondary);
+    border: 1px solid var(--btn-border);
+    padding: 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .layout-toggle:hover {
+    background: var(--btn-bg-hover);
+    color: var(--text-primary);
+  }
+
+  .clear-btn {
+    width: 100%;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--btn-border);
+    padding: 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 0.85rem;
+  }
+
+  .clear-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+    border-color: rgba(239, 68, 68, 0.2);
   }
 
   /* ===== Mobile Header ===== */
@@ -385,9 +508,9 @@
     left: 0;
     right: 0;
     height: 52px;
-    background: rgba(10, 10, 15, 0.92);
+    background: var(--header-bg);
     backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--sidebar-border);
     z-index: 100;
     align-items: center;
     padding: 0 12px;
@@ -408,7 +531,7 @@
   }
 
   .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--btn-bg-hover);
     color: var(--text-primary);
   }
 
@@ -417,18 +540,18 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
     border-radius: 8px;
     padding: 0 10px;
     height: 34px;
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--input-placeholder);
   }
 
   .mobile-search input {
     background: none;
     border: none;
-    color: white;
+    color: var(--text-primary);
     width: 100%;
     outline: none;
     font-size: 0.85rem;
@@ -438,7 +561,7 @@
   .drawer-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay-bg);
     z-index: 200;
     display: flex;
   }
@@ -446,8 +569,8 @@
   .mobile-drawer {
     width: 260px;
     height: 100%;
-    background: #0f0f14;
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--drawer-bg);
+    border-right: 1px solid var(--sidebar-border);
     display: flex;
     flex-direction: column;
     padding: 20px 16px;
@@ -456,7 +579,7 @@
 
   @keyframes slideIn {
     from { transform: translateX(-100%); }
-    to { transform: translateX(0); }
+    to   { transform: translateX(0); }
   }
 
   .drawer-header {
@@ -498,47 +621,9 @@
   .drawer-footer {
     margin-top: auto;
     padding-top: 16px;
-  }
-
-  /* ===== Mobile Tabs ===== */
-  .mobile-tabs {
-    display: none;
-    position: fixed;
-    top: 52px;
-    left: 0;
-    right: 0;
-    height: 40px;
-    background: rgba(10, 10, 15, 0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    z-index: 99;
-    align-items: center;
-    gap: 4px;
-    padding: 0 8px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .mobile-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .mobile-tabs button {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .mobile-tabs button.active {
-    background: var(--accent-color);
-    color: white;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   /* ===== Main Content ===== */
@@ -555,12 +640,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--sidebar-border);
     flex-shrink: 0;
   }
 
   .search-box {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--input-bg);
     padding: 0 14px;
     border-radius: 10px;
     display: flex;
@@ -569,7 +654,7 @@
     width: 320px;
     max-width: 100%;
     height: 38px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--input-border);
     transition: border-color 0.2s ease;
   }
 
@@ -580,15 +665,40 @@
   .search-box input {
     background: none;
     border: none;
-    color: white;
+    color: var(--text-primary);
     width: 100%;
     outline: none;
     font-size: 0.9rem;
   }
 
   .search-icon {
-    color: rgba(255, 255, 255, 0.3);
+    color: var(--input-placeholder);
     flex-shrink: 0;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .theme-toggle {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .theme-toggle:hover {
+    background: var(--btn-bg-hover);
+    color: var(--text-primary);
   }
 
   .header-meta {
@@ -636,7 +746,7 @@
   .loader {
     width: 36px;
     height: 36px;
-    border: 2px solid rgba(255, 255, 255, 0.06);
+    border: 2px solid var(--btn-border);
     border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -645,19 +755,18 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ===== Responsive ===== */
-  @media (max-width: 768px) {
+  @media (max-width: 640px) {
     .app-container {
       flex-direction: column;
     }
 
-    .mobile-header,
-    .mobile-tabs {
+    .mobile-header {
       display: flex;
     }
 
     .main-content {
-      margin-top: 92px; /* header + tabs */
-      height: calc(100vh - 92px);
+      margin-top: 52px;
+      height: calc(100vh - 52px);
     }
 
     .search-header {
@@ -677,5 +786,51 @@
     .media-grid {
       gap: 8px;
     }
+  }
+
+  .app-container.force-mobile {
+    flex-direction: column;
+  }
+
+  .app-container.force-mobile .mobile-header {
+    display: flex;
+  }
+
+  .app-container.force-mobile .main-content {
+    margin-top: 52px;
+    height: calc(100vh - 52px);
+  }
+
+  .app-container.force-mobile .search-header {
+    display: none;
+  }
+
+  .app-container.force-mobile .scroll-area {
+    padding: 12px;
+  }
+
+  .app-container.force-mobile .media-grid {
+    gap: 10px;
+  }
+
+  .app-container.force-desktop .mobile-header {
+    display: none !important;
+  }
+
+  .app-container.force-desktop .main-content {
+    margin-top: 0 !important;
+    height: auto !important;
+  }
+
+  .app-container.force-desktop .search-header {
+    display: flex !important;
+  }
+
+  .app-container.force-desktop .scroll-area {
+    padding: 24px !important;
+  }
+
+  .app-container.force-desktop .media-grid {
+    gap: 20px !important;
   }
 </style>

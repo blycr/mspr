@@ -6,6 +6,7 @@ const ALLOWED_NAMES = /bun|node|vite/i;
 const PID_FILE = path.join(import.meta.dir, '.pids');
 
 function log(msg) {
+  // only print when something actually happens
   console.log(`[Cleanup] ${msg}`);
 }
 
@@ -58,11 +59,9 @@ function killPid(pid) {
   try {
     const name = getProcessName(pid);
     if (!name) {
-      log(`PID ${pid} already gone`);
       return true;
     }
     if (!ALLOWED_NAMES.test(name)) {
-      log(`Skipping ${name} (PID ${pid}) — not a bun/node/vite process`);
       return false;
     }
     log(`Killing ${name} (PID ${pid})`);
@@ -98,11 +97,8 @@ function killByPidsFile() {
   }
 }
 
-// Main
-log('Starting...');
 cleanDist();
 killByPidsFile();
 killByPort(3000);
 killByPort(5173);
 killByPort(5174);
-log('Done.');

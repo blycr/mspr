@@ -2,7 +2,8 @@
   "name": "@mspr/client",
   "private": true,
   "dependencies": {
-    "@mspr/shared": "workspace:*"
+    "@mspr/shared": "workspace:*",
+    "pinyin-pro": "^3.28.1"
   },
   "version": "0.0.0",
   "type": "module",

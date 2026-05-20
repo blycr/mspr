@@ -1,6 +1,13 @@
 import { Elysia } from 'elysia';
 import { configManager } from '../config/manager.js';
 
+/**
+ * Security plugin factory for Elysia.
+ * @todo Not yet wired into the main app in `index.ts`. IP detection logic
+ *       (`app.server?.hostname`) is also incorrect — it returns the server
+ *       bind address, not the client IP. Use `request.headers.get('x-forwarded-for')`
+ *       or Elysia's built-in `ip` when this is activated.
+ */
 export const securityMiddleware = (app: Elysia) => {
   return app.derive(({ request, set }) => {
     const config = configManager.get();

@@ -6,7 +6,7 @@ import { directStreamer } from '../streaming/direct-streamer.js';
 import { transcodePipeline } from '../streaming/transcode-pipeline.js';
 import { thumbnailGenerator } from '../streaming/thumbnail-generator.js';
 import { configManager } from '../config/manager.js';
-import path from 'path';
+import { resolveMediaPath } from '../utils/media-path.js';
 
 export const mediaRoutes = new Elysia({ prefix: '/media' })
   .get('/', () => {
@@ -34,11 +34,8 @@ export const mediaRoutes = new Elysia({ prefix: '/media' })
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(query.id) as any;
     if (!item) return (set.status = 404, 'Media not found');
 
-    const config = configManager.get();
-    const share = config.shares.find(s => s.label === item.shareLabel);
-    if (!share) return (set.status = 404, 'Share not found');
-
-    const fullPath = path.join(share.path, item.relPath);
+    const fullPath = resolveMediaPath(item);
+    if (!fullPath) return (set.status = 404, 'Share not found');
     const probe = await probeEngine.probe(query.id);
 
     if (!probe) return (set.status = 500, 'Probe failed');
@@ -60,11 +57,8 @@ export const mediaRoutes = new Elysia({ prefix: '/media' })
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(query.id) as any;
     if (!item) return (set.status = 404, 'Subtitle not found');
 
-    const config = configManager.get();
-    const share = config.shares.find(s => s.label === item.shareLabel);
-    if (!share) return (set.status = 404, 'Share not found');
-
-    const fullPath = path.join(share.path, item.relPath);
+    const fullPath = resolveMediaPath(item);
+    if (!fullPath) return (set.status = 404, 'Share not found');
     const content = await Bun.file(fullPath).text();
     
     const { SubtitleConverter } = await import('../utils/subtitle-converter.js');
@@ -77,11 +71,8 @@ export const mediaRoutes = new Elysia({ prefix: '/media' })
     const item = db.query('SELECT * FROM media_items WHERE id = ?').get(query.id) as any;
     if (!item) return (set.status = 404, 'Lyric not found');
 
-    const config = configManager.get();
-    const share = config.shares.find(s => s.label === item.shareLabel);
-    if (!share) return (set.status = 404, 'Share not found');
-
-    const fullPath = path.join(share.path, item.relPath);
+    const fullPath = resolveMediaPath(item);
+    if (!fullPath) return (set.status = 404, 'Share not found');
     return await Bun.file(fullPath).text();
   }, {
     query: t.Object({ id: t.String() })

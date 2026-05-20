@@ -29,6 +29,10 @@ export const personalRoutes = new Elysia({ prefix: '/personal' })
       LIMIT 20
     `).all();
   })
+  .delete('/history', () => {
+    db.run('DELETE FROM playback_progress');
+    return { success: true };
+  })
   .get('/favorites', () => {
     return db.query(`
       SELECT m.* FROM media_items m

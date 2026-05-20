@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { parseLRC, type LyricLine } from '../../lib/player/lyrics';
+  import { parseLRC, type LyricLine } from '../../lib/player/lyrics.js';
   import { api } from '../../lib/api.js';
 
   interface Props {
@@ -72,19 +72,19 @@
   .lyric-line {
     font-size: 1.5rem;
     font-weight: 600;
-    color: var(--text-dim);
+    color: var(--lyric-inactive-color);
     transition: var(--transition-smooth);
     text-align: center;
     line-height: 1.4;
-    filter: blur(1px);
-    opacity: 0.5;
+    filter: blur(var(--lyric-inactive-blur));
+    opacity: var(--lyric-inactive-opacity);
   }
 
   .lyric-line.active {
     color: var(--text-primary);
     filter: blur(0);
     opacity: 1;
-    text-shadow: 0 0 16px rgba(255, 255, 255, 0.25);
+    text-shadow: 0 0 16px var(--lyric-glow-color);
     transform: scale(1.1);
   }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { playerEngine } from '../../lib/player/engine';
+  import { playerEngine } from '../../lib/player/engine.js';
   import { api } from '../../lib/api.js';
   import { formatTime } from '../../lib/format.js';
   import Icon from '../Icon.svelte';
@@ -311,7 +311,7 @@
   .player-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.92);
+    background: var(--player-overlay-bg);
     z-index: 1000;
     display: flex;
     align-items: center;
@@ -323,13 +323,13 @@
     width: 100%;
     max-width: 1100px;
     height: 85vh;
-    background: #0c0c10;
+    background: var(--player-container-bg);
     border-radius: 16px;
     position: relative;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--player-container-border);
   }
 
   .player-bg {
@@ -355,7 +355,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent);
+    background: var(--player-header-gradient);
     flex-shrink: 0;
   }
 
@@ -370,7 +370,7 @@
     margin: 0;
     font-size: 1.1rem;
     font-weight: 600;
-    color: white;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -387,8 +387,8 @@
   }
 
   .badge.kind {
-    background: rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.6);
+    background: var(--btn-bg);
+    color: var(--text-secondary);
   }
 
   .badge.transcoding {
@@ -397,9 +397,9 @@
   }
 
   .close-btn {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--btn-bg);
     border: none;
-    color: white;
+    color: var(--text-primary);
     width: 36px;
     height: 36px;
     border-radius: 50%;
@@ -412,7 +412,7 @@
   }
 
   .close-btn:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--btn-bg-hover);
   }
 
   .player-main {
@@ -450,7 +450,7 @@
     aspect-ratio: 1 / 1;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 24px 80px var(--player-cover-shadow);
     flex-shrink: 0;
   }
 
@@ -471,7 +471,7 @@
 
   .progress-track {
     height: 5px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--player-progress-track);
     border-radius: 3px;
     cursor: pointer;
     position: relative;
@@ -516,7 +516,7 @@
     border-radius: 50%;
     background: var(--accent-color);
     border: none;
-    color: white;
+    color: #ffffff;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -558,7 +558,7 @@
     appearance: none;
     width: 90px;
     height: 4px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--player-progress-track);
     border-radius: 2px;
     outline: none;
     cursor: pointer;
@@ -608,7 +608,7 @@
 
   .ctrl-btn:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--btn-bg-hover);
   }
 
   .mode-btn {
@@ -627,7 +627,7 @@
 
   .mode-btn:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--btn-bg-hover);
   }
 
   .mode-badge {
@@ -646,7 +646,7 @@
   /* ===== Video Section ===== */
   .visual-section {
     flex: 1.5;
-    background: #000;
+    background: var(--player-visual-bg);
     position: relative;
     display: flex;
     align-items: center;
@@ -673,8 +673,8 @@
   /* ===== Lyrics ===== */
   .lyrics-section {
     flex: 1;
-    background: rgba(0, 0, 0, 0.25);
-    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--player-lyrics-bg);
+    border-left: 1px solid var(--player-lyrics-border);
     overflow: hidden;
     min-width: 0;
   }
@@ -685,13 +685,13 @@
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    color: #ef4444;
+    color: var(--error-color);
     text-align: center;
     padding: 24px;
   }
 
   .error-msg p {
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--player-error-text-secondary);
     margin: 0;
   }
 
@@ -700,13 +700,13 @@
     flex-direction: column;
     align-items: center;
     gap: 16px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--player-loading-text);
   }
 
   .loader {
     width: 40px;
     height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.08);
+    border: 3px solid var(--player-loader-track);
     border-top-color: var(--accent-color);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -714,62 +714,9 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .resume-toast {
-    position: absolute;
-    bottom: 32px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(15, 15, 18, 0.95);
-    padding: 14px 20px;
-    border-radius: 12px;
-    border: 1px solid var(--accent-color);
-    z-index: 100;
-    text-align: center;
-    backdrop-filter: blur(8px);
-    white-space: nowrap;
-  }
-
-  .toast-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 10px;
-    justify-content: center;
-  }
-
-  .btn-primary {
-    background: var(--accent-color);
-    color: white;
-    border: none;
-    padding: 8px 18px;
-    border-radius: 8px;
-    font-weight: 600;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: background 0.15s ease;
-  }
-
-  .btn-primary:hover {
-    background: var(--accent-hover);
-  }
-
-  .btn-ghost {
-    background: transparent;
-    color: rgba(255,255,255,0.5);
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 8px 18px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: all 0.15s ease;
-  }
-
-  .btn-ghost:hover {
-    color: rgba(255,255,255,0.8);
-    border-color: rgba(255,255,255,0.2);
-  }
 
   /* ===== Responsive ===== */
-  @media (max-width: 768px) {
+  @media (max-width: 640px) {
     .player-overlay {
       padding: 0;
     }
@@ -817,7 +764,7 @@
 
     .lyrics-section {
       border-left: none;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      border-top: 1px solid var(--player-lyrics-border);
       flex: 1;
       min-height: 0;
       overflow: hidden;
@@ -827,11 +774,5 @@
       flex: 1;
     }
 
-    .resume-toast {
-      bottom: 16px;
-      padding: 12px 16px;
-      white-space: normal;
-      max-width: 90vw;
-    }
   }
 </style>
