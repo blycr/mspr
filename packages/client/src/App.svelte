@@ -224,7 +224,7 @@
         <div class="mobile-drawer" aria-label="Navigation menu" role="dialog" tabindex="-1" onclick={e => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') sidebarOpen = false; }}>
           <div class="drawer-header">
             <div class="drawer-header-brand">
-              <Icon name="logo" size={22} />
+              <img src="/favicon.svg" alt="" width="22" height="22" class="logo-img" />
               <span class="logo-text">MSP</span>
             </div>
             <button class="icon-btn" onclick={() => sidebarOpen = false} aria-label="Close menu">
@@ -262,7 +262,7 @@
   {:else}
     <aside class="sidebar">
       <div class="logo">
-        <Icon name="logo" size={22} />
+        <img src="/favicon.svg" alt="" width="22" height="22" class="logo-img" />
         <span class="logo-text">MSP</span>
       </div>
 
@@ -394,7 +394,11 @@
     gap: 10px;
     margin-bottom: 32px;
     padding: 0 8px;
-    color: var(--accent-color);
+  }
+
+  .logo-img {
+    display: block;
+    flex-shrink: 0;
   }
 
   .logo-text {
