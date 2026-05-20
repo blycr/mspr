@@ -13,8 +13,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "@mspr/shared": ["packages/shared/src"],
-      "@mspr/shared/*": ["packages/shared/src/*"]
+      "@mspr/shared": ["./packages/shared/src"],
+      "@mspr/shared/*": ["./packages/shared/src/*"]
     }
   },
   "exclude": ["node_modules"]
