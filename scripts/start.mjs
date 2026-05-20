@@ -12,13 +12,14 @@ const YELLOW = '\x1b[33m';
 const RESET = '\x1b[0m';
 
 function getLanIps() {
-  const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer/i;
+  const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer|mihomo|clash|v2ray|shadowsocks|sing-box|proxifier/i;
   const linkLocal = /^169\.254\./;
+  const benchmarkNet = /^198\.1[89]\./;
   const results = [];
   for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
     if (!addrs || virtual.test(name)) continue;
     for (const a of addrs) {
-      if (a.family === 'IPv4' && !a.internal && !linkLocal.test(a.address)) {
+      if (a.family === 'IPv4' && !a.internal && !linkLocal.test(a.address) && !benchmarkNet.test(a.address)) {
         results.push(a.address);
       }
     }
