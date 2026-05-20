@@ -1,19 +1,21 @@
 import fs from 'fs';
 import path from 'path';
-import { AppConfig } from '@mspr/shared';
+import { SCANNER_DEFAULT_EXCLUDE_EXTS, SCANNER_DEFAULT_EXCLUDE_NAMES, API_DEFAULT_PORT } from '@mspr/shared';
+import type { AppConfig } from '@mspr/shared';
+import { LOG_PREFIX } from '../constants/index.js';
 
 const CONFIG_PATH = path.resolve(import.meta.dir, '../../data', 'config.json');
 
 const DEFAULT_CONFIG: AppConfig = {
   shares: [],
-  port: 3000,
+  port: API_DEFAULT_PORT,
   security: {
     allowedIps: [],
     blockedIps: []
   },
   scanner: {
-    excludeExts: ['tmp', 'log', 'torrent'],
-    excludeNames: ['thumbs.db', 'desktop.ini', '$RECYCLE.BIN', '.git']
+    excludeExts: [...SCANNER_DEFAULT_EXCLUDE_EXTS],
+    excludeNames: [...SCANNER_DEFAULT_EXCLUDE_NAMES]
   }
 };
 
@@ -30,7 +32,7 @@ export class ConfigManager {
         const data = fs.readFileSync(CONFIG_PATH, 'utf-8');
         return JSON.parse(data);
       } catch (e) {
-        console.error('Failed to load config, using defaults:', e);
+        console.error(`${LOG_PREFIX.CONFIG} Failed to load config, using defaults:`, e);
       }
     }
     this.save(DEFAULT_CONFIG);
@@ -39,8 +41,9 @@ export class ConfigManager {
 
   public save(config: AppConfig) {
     this.config = config;
-    if (!fs.existsSync(path.dirname(CONFIG_PATH))) {
-      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    const dir = path.dirname(CONFIG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   }
@@ -51,10 +54,10 @@ export class ConfigManager {
 
   public watch() {
     if (!fs.existsSync(CONFIG_PATH)) return;
-    console.log('[Config] Watching for changes...');
+    console.log(`${LOG_PREFIX.CONFIG} Watching for changes...`);
     fs.watch(CONFIG_PATH, (event) => {
       if (event === 'change') {
-        console.log('[Config] File changed, reloading...');
+        console.log(`${LOG_PREFIX.CONFIG} File changed, reloading...`);
         this.config = this.load();
       }
     });

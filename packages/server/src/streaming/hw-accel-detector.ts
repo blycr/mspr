@@ -1,13 +1,17 @@
-import { HWAccelResult } from '@mspr/shared';
+import type { HWAccelResult, HWAccelName } from '@mspr/shared';
+import {
+  HW_ENCODER_TESTS,
+  HW_ENCODER_TEST_SOURCE,
+} from '@mspr/shared';
+import { LOG_PREFIX } from '../constants/index.js';
 
 export class HWAccelDetector {
   private result: HWAccelResult = {
     available: [],
     preferred: 'cpu',
-    encoderMap: {}
+    encoderMap: {} as Record<HWAccelName, string>
   };
 
-  /** Try to find ffmpeg binary, with Windows .exe fallback */
   private async findFfmpeg(): Promise<string | null> {
     for (const cmd of ['ffmpeg', 'ffmpeg.exe']) {
       try {
@@ -24,11 +28,11 @@ export class HWAccelDetector {
   public async detect(): Promise<HWAccelResult> {
     const ffmpegCmd = await this.findFfmpeg();
     if (!ffmpegCmd) {
-      console.warn('[HWAccel] ffmpeg not found in PATH. Transcoding will not work.');
+      console.warn(`${LOG_PREFIX.HWACCEL} ffmpeg not found in PATH. Transcoding will not work.`);
       return this.result;
     }
 
-    console.log(`[HWAccel] Found ffmpeg: ${ffmpegCmd}`);
+    console.log(`${LOG_PREFIX.HWACCEL} Found ffmpeg: ${ffmpegCmd}`);
 
     try {
       const { stdout } = Bun.spawn([ffmpegCmd, '-hide_banner', '-hwaccels']);
@@ -39,33 +43,24 @@ export class HWAccelDetector {
         .filter(line => line && !line.startsWith('Hardware'));
 
       this.result.available = hwaccels;
-      console.log(`[HWAccel] Available hwaccels: ${hwaccels.join(', ') || 'none'}`);
+      console.log(`${LOG_PREFIX.HWACCEL} Available hwaccels: ${hwaccels.join(', ') || 'none'}`);
 
-      // Test specific encoders
-      const encodersToTest = [
-        { name: 'nvenc', encoder: 'h264_nvenc' },
-        { name: 'qsv', encoder: 'h264_qsv' },
-        { name: 'videotoolbox', encoder: 'h264_videotoolbox' },
-        { name: 'vaapi', encoder: 'h264_vaapi' },
-        { name: 'amf', encoder: 'h264_amf' }
-      ];
-
-      for (const test of encodersToTest) {
+      for (const test of HW_ENCODER_TESTS) {
         if (await this.testEncoder(ffmpegCmd, test.encoder)) {
-          this.result.preferred = test.name;
-          this.result.encoderMap[test.name] = test.encoder;
-          console.log(`[HWAccel] Using hardware acceleration: ${test.name} (${test.encoder})`);
+          this.result.preferred = test.name as HWAccelName;
+          this.result.encoderMap[test.name as HWAccelName] = test.encoder;
+          console.log(`${LOG_PREFIX.HWACCEL} Using hardware acceleration: ${test.name} (${test.encoder})`);
           break;
         }
       }
 
       if (this.result.preferred === 'cpu') {
-        console.log('[HWAccel] No hardware acceleration available, falling back to CPU (libx264). This is normal on systems without a supported GPU or when using a CPU-only ffmpeg build.');
+        console.log(`${LOG_PREFIX.HWACCEL} No hardware acceleration available, falling back to CPU (libx264).`);
       }
 
       return this.result;
     } catch (e) {
-      console.error('[HWAccel] Detection failed:', e);
+      console.error(`${LOG_PREFIX.HWACCEL} Detection failed:`, e);
       return this.result;
     }
   }
@@ -76,20 +71,17 @@ export class HWAccelDetector {
         ffmpegCmd,
         '-hide_banner',
         '-f', 'lavfi',
-        '-i', 'testsrc=duration=1:size=320x240:rate=1',
+        '-i', HW_ENCODER_TEST_SOURCE,
         '-c:v', encoder,
         '-f', 'null',
         '-'
       ], { stderr: 'pipe', stdout: 'pipe' });
 
-      const stdout = await new Response(process.stdout).text();
       const stderr = await new Response(process.stderr).text();
       const status = await process.exited;
 
-      // FFmpeg writes all output (including progress) to stderr, stdout is empty
-      const output = stderr;
-      const hasErrors = output.includes('Error') || output.includes('failed');
-      const wroteFrames = output.includes('frame=') && !output.includes('frame=    0');
+      const hasErrors = stderr.includes('Error') || stderr.includes('failed');
+      const wroteFrames = stderr.includes('frame=') && !stderr.includes('frame=    0');
 
       return status === 0 && !hasErrors && wroteFrames;
     } catch {

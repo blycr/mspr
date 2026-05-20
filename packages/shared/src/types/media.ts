@@ -1,5 +1,15 @@
 export type MediaKind = 'video' | 'audio' | 'image' | 'other';
 
+export type StreamStrategy = 'direct' | 'transcode' | 'remux';
+
+export type PlayMode = 'loop' | 'shuffle' | 'repeat-one';
+
+export type Theme = 'light' | 'dark';
+
+export type TabKey = 'video' | 'audio' | 'image' | 'history';
+
+export type HWAccelName = 'nvenc' | 'qsv' | 'videotoolbox' | 'vaapi' | 'amf' | 'cpu';
+
 export interface Subtitle {
   id: string;
   label: string;
@@ -27,25 +37,29 @@ export interface Share {
   path: string;
 }
 
+export interface SecurityConfig {
+  pin?: string;
+  allowedIps?: string[];
+  blockedIps?: string[];
+}
+
+export interface ScannerConfig {
+  excludeExts: string[];
+  excludeNames: string[];
+  minSize?: number;
+  maxSize?: number;
+}
+
 export interface AppConfig {
   shares: Share[];
   port: number;
-  security: {
-    pin?: string;
-    allowedIps?: string[];
-    blockedIps?: string[];
-  };
-  scanner: {
-    excludeExts: string[];
-    excludeNames: string[];
-    minSize?: number;
-    maxSize?: number;
-  };
+  security: SecurityConfig;
+  scanner: ScannerConfig;
 }
 
 export interface ProbeResult {
   mediaId: string;
-  strategy: 'direct' | 'transcode' | 'remux';
+  strategy: StreamStrategy;
   container: string;
   videoCodec: string | null;
   audioCodec: string | null;
@@ -58,6 +72,31 @@ export interface ProbeResult {
 
 export interface HWAccelResult {
   available: string[];
-  preferred: string | 'cpu';
-  encoderMap: Record<string, string>;
+  preferred: HWAccelName;
+  encoderMap: Record<HWAccelName, string>;
+}
+
+export interface MediaItemRow {
+  id: string;
+  relPath: string;
+  name: string;
+  ext: string;
+  kind: MediaKind;
+  shareLabel: string;
+  size: number;
+  modTime: number;
+  subtitles: string | null;
+  coverId: string | null;
+  lyricsId: string | null;
+}
+
+export interface PlaybackProgressRow {
+  mediaId: string;
+  time: number;
+  updatedAt: number;
+}
+
+export interface FavoriteRow {
+  mediaId: string;
+  createdAt: number;
 }

@@ -1,6 +1,9 @@
-import type { MediaItem } from '@mspr/shared';
+import type { MediaItem, PlayMode } from '@mspr/shared';
 
-export type PlayMode = 'loop' | 'shuffle' | 'repeat-one';
+const MODES: PlayMode[] = ['loop', 'shuffle', 'repeat-one'];
+const PLAYED_WEIGHT_DEFAULT = 1.0;
+const PLAYED_WEIGHT_PENALTY = 0.05;
+const CURRENT_WEIGHT = 0;
 
 export class PlaylistManager {
   items: MediaItem[] = [];
@@ -18,8 +21,7 @@ export class PlaylistManager {
   }
 
   toggleMode() {
-    const modes: PlayMode[] = ['loop', 'shuffle', 'repeat-one'];
-    this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
+    this.mode = MODES[(MODES.indexOf(this.mode) + 1) % MODES.length];
   }
 
   next(): MediaItem | null {
@@ -65,14 +67,13 @@ export class PlaylistManager {
     if (this.items.length === 1) return { item: this.items[0], index: 0 };
 
     const weights = this.items.map((item, i) => {
-      if (i === this.currentIndex) return 0;
-      if (this.playedInRound.has(item.id)) return 0.05;
-      return 1.0;
+      if (i === this.currentIndex) return CURRENT_WEIGHT;
+      if (this.playedInRound.has(item.id)) return PLAYED_WEIGHT_PENALTY;
+      return PLAYED_WEIGHT_DEFAULT;
     });
 
-    const total = weights.reduce((a, b) => a + b, 0);
+    const total = weights.reduce<number>((a, b) => a + b, 0);
     if (total <= 0) {
-      // fallback: anything except current
       const fallback = (this.currentIndex + 1) % this.items.length;
       return { item: this.items[fallback], index: fallback };
     }

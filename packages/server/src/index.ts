@@ -7,16 +7,19 @@ import { mediaRoutes } from './routes/media.js';
 import { personalRoutes } from './routes/personal.js';
 import { hwAccelDetector } from './streaming/hw-accel-detector.js';
 import { scannerEngine } from './scanner/engine.js';
+import { LOG_PREFIX, ANSI_CODES, NETWORK_FILTER } from './constants/index.js';
 
 function getLanIPs(): string[] {
-  const virtual = /virtual|vmware|vethernet|tap|wsl|loopback|hyper-v|gameviewer|mihomo|clash|v2ray|shadowsocks|sing-box|proxifier/i;
-  const linkLocal = /^169\.254\./;
-  const benchmarkNet = /^198\.1[89]\./;
   const results: string[] = [];
   for (const [name, addrs] of Object.entries(os.networkInterfaces())) {
-    if (!addrs || virtual.test(name)) continue;
+    if (!addrs || NETWORK_FILTER.VIRTUAL.test(name)) continue;
     for (const a of addrs) {
-      if (a.family === 'IPv4' && !a.internal && !linkLocal.test(a.address) && !benchmarkNet.test(a.address)) {
+      if (
+        a.family === 'IPv4' &&
+        !a.internal &&
+        !NETWORK_FILTER.LINK_LOCAL.test(a.address) &&
+        !NETWORK_FILTER.BENCHMARK.test(a.address)
+      ) {
         results.push(a.address);
       }
     }
@@ -41,7 +44,7 @@ const distDir = path.resolve(import.meta.dir, '../../client/dist');
 const distIndex = path.join(distDir, 'index.html');
 
 if (Bun.file(distIndex).size > 0) {
-  console.log(`[Server] Serving client static files from ${distDir}`);
+  console.log(`${LOG_PREFIX.SERVER} Serving client static files from ${distDir}`);
 
   app.get('/', () => Bun.file(distIndex));
 
@@ -62,15 +65,12 @@ app.listen(configManager.get().port);
 
 const port = app.server?.port;
 const lanIps = getLanIPs();
-const BOLD = '\x1b[1m';
-const CYAN = '\x1b[36m';
-const GREEN = '\x1b[32m';
-const RESET = '\x1b[0m';
+const { BOLD, CYAN, GREEN, RESET } = ANSI_CODES;
 
-console.log(`[Server] Local  http://localhost:${port}${RESET}`);
+console.log(`${LOG_PREFIX.SERVER} Local  http://localhost:${port}${RESET}`);
 if (lanIps.length > 0) {
   for (const ip of lanIps) {
-    console.log(`[Server] LAN    ${BOLD}${GREEN}http://${ip}:${port}${RESET}`);
+    console.log(`${LOG_PREFIX.SERVER} LAN    ${BOLD}${GREEN}http://${ip}:${port}${RESET}`);
   }
 }
 

@@ -11,7 +11,7 @@ export const EXTENSION_MAP: Record<string, MediaKind> = {
   'webm': 'video',
   'ts': 'video',
   'm4v': 'video',
-  
+
   // Audio
   'mp3': 'audio',
   'wav': 'audio',
@@ -22,7 +22,7 @@ export const EXTENSION_MAP: Record<string, MediaKind> = {
   'wma': 'audio',
   'ape': 'audio',
   'opus': 'audio',
-  
+
   // Image
   'jpg': 'image',
   'jpeg': 'image',

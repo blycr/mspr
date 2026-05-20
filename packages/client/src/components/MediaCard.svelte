@@ -194,21 +194,9 @@
       contain-intrinsic-size: auto 220px;
     }
 
-    .card-info {
-      padding: 10px 12px;
-    }
-
-    .name {
-      font-size: 0.8rem;
-    }
-
-    .meta {
-      font-size: 0.7rem;
-    }
-
-    .play-btn-circle {
-      width: 36px;
-      height: 36px;
-    }
+    .card-info { padding: 10px 12px; }
+    .name { font-size: 0.8rem; }
+    .meta { font-size: 0.7rem; }
+    .play-btn-circle { width: 36px; height: 36px; }
   }
 </style>

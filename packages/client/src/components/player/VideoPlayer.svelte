@@ -1,18 +1,22 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { playerEngine } from '../../lib/player/engine.js';
   import { api } from '../../lib/api.js';
   import { formatTime } from '../../lib/format.js';
   import Icon from '../Icon.svelte';
   import LyricsOverlay from './LyricsOverlay.svelte';
-  import type { MediaItem, ProbeResult } from '@mspr/shared';
+  import type { MediaItem, ProbeResult, PlayMode } from '@mspr/shared';
+  import {
+    PLAYER_PROGRESS_SAVE_INTERVAL_MS,
+    PLAYER_RESUME_THRESHOLD_SECONDS,
+    PLAYER_SEEK_KEYBOARD_STEP_SECONDS,
+  } from '@mspr/shared';
 
   interface Props {
     item: MediaItem;
     onClose: () => void;
     onNext: () => void;
     onPrev: () => void;
-    playMode: 'loop' | 'shuffle' | 'repeat-one';
+    playMode: PlayMode;
     onToggleMode: () => void;
     isAutoPlay: boolean;
   }
@@ -30,46 +34,91 @@
   let probeResult = $state<ProbeResult | null>(null);
   let seekOffset = $state(0);
 
-  onMount(async () => {
-    try {
-      const info = await playerEngine.getPlaybackInfo(item.id);
-      src = info.src;
-      probeResult = info.probe;
-      isTranscoding = info.probe.strategy === 'transcode';
-      duration = info.probe.duration || 0;
-      isLoading = false;
+  const MODE_LABELS: Record<PlayMode, string> = {
+    loop: 'List loop',
+    shuffle: 'Shuffle',
+    'repeat-one': 'Repeat one',
+  };
 
-      const prog = await api.fetchProgress(item.id);
-      if (!isAutoPlay && prog.time > 10 && mediaElement) {
-        mediaElement.currentTime = prog.time;
+  const ERROR_MESSAGES: Record<number, string> = {
+    2: 'Network error. Check server connection.',
+    3: 'Decode error. File may be corrupted.',
+    4: 'Format not supported.',
+  };
+
+  const DEFAULT_ERROR_MESSAGE = 'Playback failed.';
+
+  /* ============================================================
+     Initialization
+     ============================================================ */
+  $effect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await playerEngine.getPlaybackInfo(item.id);
+        if (cancelled) return;
+        src = info.src;
+        probeResult = info.probe;
+        isTranscoding = info.probe.strategy === 'transcode';
+        duration = info.probe.duration || 0;
+        isLoading = false;
+
+        const prog = await api.fetchProgress(item.id);
+        if (!cancelled && !isAutoPlay && prog.time > PLAYER_RESUME_THRESHOLD_SECONDS && mediaElement) {
+          mediaElement.currentTime = prog.time;
+        }
+      } catch (e) {
+        if (!cancelled) {
+          error = 'Failed to load media.';
+          isLoading = false;
+        }
       }
-    } catch (e) {
-      error = 'Failed to load media.';
-      isLoading = false;
-    }
+    })();
+    return () => { cancelled = true; };
   });
 
+  /* ============================================================
+     Progress save interval
+     ============================================================ */
+  $effect(() => {
+    if (!mediaElement) return;
+    const interval = setInterval(saveProgress, PLAYER_PROGRESS_SAVE_INTERVAL_MS);
+    return () => clearInterval(interval);
+  });
+
+  /* ============================================================
+     Derived state
+     ============================================================ */
+  const modeLabel = $derived(MODE_LABELS[playMode]);
+
+  const subtitleTracks = $derived.by(() => {
+    return (item.subtitles || []).map(sub => ({
+      ...sub,
+      src: sub.src.startsWith('http') ? sub.src : api.subtitleUrl(sub.id)
+    }));
+  });
+
+  const displayTime = $derived(currentTime + seekOffset);
+
+  const progressPct = $derived.by(() => {
+    return duration > 0 ? (displayTime / duration) * 100 : 0;
+  });
+
+  /* ============================================================
+     Event handlers
+     ============================================================ */
   function handleMediaError() {
     const el = mediaElement;
     if (!el) return;
-
     const code = el.error?.code;
 
-    if (!isTranscoding) {
-      if (code === 3 || code === 4) {
-        src = playerEngine.getStreamUrl(item.id, true);
-        isTranscoding = true;
-        return;
-      }
+    if (!isTranscoding && (code === 3 || code === 4)) {
+      src = playerEngine.getStreamUrl(item.id, true);
+      isTranscoding = true;
+      return;
     }
 
-    error = code === 2
-      ? 'Network error. Check server connection.'
-      : code === 3
-        ? 'Decode error. File may be corrupted.'
-        : code === 4
-          ? 'Format not supported.'
-          : 'Playback failed.';
+    error = code && ERROR_MESSAGES[code] ? ERROR_MESSAGES[code] : DEFAULT_ERROR_MESSAGE;
   }
 
   async function saveProgress() {
@@ -98,7 +147,6 @@
     if (!mediaElement || !duration) return;
     targetTime = Math.max(0, Math.min(duration, targetTime));
 
-    // For transcoded streams, reload with offset since the browser cannot seek inside a generated pipe stream
     if (isTranscoding) {
       const wasPlaying = !mediaElement.paused;
       mediaElement.pause();
@@ -121,34 +169,17 @@
     seekTo(ratio * duration);
   }
 
-  let interval: ReturnType<typeof setInterval>;
-  $effect(() => {
-    if (mediaElement) {
-      interval = setInterval(saveProgress, 10000);
-      return () => clearInterval(interval);
+  function handleSeekKey(e: KeyboardEvent) {
+    if (!mediaElement || !duration) return;
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      seekTo(displayTime - PLAYER_SEEK_KEYBOARD_STEP_SECONDS);
     }
-  });
-
-  const modeLabel = $derived.by(() => {
-    switch (playMode) {
-      case 'loop': return 'List loop';
-      case 'shuffle': return 'Shuffle';
-      case 'repeat-one': return 'Repeat one';
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      seekTo(displayTime + PLAYER_SEEK_KEYBOARD_STEP_SECONDS);
     }
-  });
-
-  const subtitleTracks = $derived.by(() => {
-    return (item.subtitles || []).map(sub => ({
-      ...sub,
-      src: sub.src.startsWith('http') ? sub.src : api.subtitleUrl(sub.id)
-    }));
-  });
-
-  const displayTime = $derived(currentTime + seekOffset);
-
-  const progressPct = $derived.by(() => {
-    return duration > 0 ? (displayTime / duration) * 100 : 0;
-  });
+  }
 </script>
 
 <div class="player-overlay">
@@ -195,17 +226,7 @@
             </div>
 
             <div class="audio-controls">
-              <div class="progress-track" onclick={handleSeek} onkeydown={(e) => {
-                if (!mediaElement || !duration) return;
-                if (e.key === 'ArrowLeft') {
-                  e.preventDefault();
-                  seekTo(displayTime - 5);
-                }
-                if (e.key === 'ArrowRight') {
-                  e.preventDefault();
-                  seekTo(displayTime + 5);
-                }
-              }} role="slider" aria-valuenow={currentTime} aria-valuemax={duration} aria-label="Seek" tabindex="0">
+              <div class="progress-track" onclick={handleSeek} onkeydown={handleSeekKey} role="slider" aria-valuenow={currentTime} aria-valuemax={duration} aria-label="Seek" tabindex="0">
                 <div class="progress-fill" style="width: {progressPct}%"></div>
               </div>
               <div class="time-row">
@@ -260,7 +281,6 @@
               onended={handleEnded}
               onerror={handleMediaError}
             ></audio>
-
           </div>
         {:else}
           <div class="visual-section">
@@ -291,7 +311,6 @@
                     <track kind="subtitles" src={sub.src} srclang={sub.lang || ''} label={sub.label} default={sub.default} />
                   {/each}
                 </video>
-
               </div>
             {/if}
           </div>
@@ -312,7 +331,7 @@
     position: fixed;
     inset: 0;
     background: var(--player-overlay-bg);
-    z-index: 1000;
+    z-index: var(--z-player);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -714,7 +733,6 @@
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-
   /* ===== Responsive ===== */
   @media (max-width: 640px) {
     .player-overlay {
@@ -773,6 +791,5 @@
     .visual-section {
       flex: 1;
     }
-
   }
 </style>

@@ -1,12 +1,13 @@
 import type { ProbeResult } from '@mspr/shared';
 import { api } from '../api.js';
+import { ENDPOINTS } from '../../constants/api.js';
 
 export class PlayerEngine {
   public async getPlaybackInfo(mediaId: string): Promise<{ src: string; probe: ProbeResult }> {
-    const res = await fetch(`${api.baseUrl}/media/probe?id=${mediaId}`);
+    const res = await fetch(`${ENDPOINTS.MEDIA_PROBE}?id=${mediaId}`);
     const probe: ProbeResult = await res.json();
 
-    let src = `${api.baseUrl}/media/stream?id=${mediaId}`;
+    let src = `${ENDPOINTS.MEDIA_STREAM}?id=${mediaId}`;
     if (probe.strategy === 'transcode') {
       src += '&transcode=1';
     }
@@ -15,7 +16,7 @@ export class PlayerEngine {
   }
 
   public getStreamUrl(mediaId: string, transcode: boolean = false, offset: number = 0): string {
-    let url = `${api.baseUrl}/media/stream?id=${mediaId}`;
+    let url = `${ENDPOINTS.MEDIA_STREAM}?id=${mediaId}`;
     if (transcode) url += '&transcode=1';
     if (offset > 0) url += `&offset=${offset}`;
     return url;

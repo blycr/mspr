@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import type { MediaItem } from '@mspr/shared';
+  import { VIEWER_MIN_SCALE, VIEWER_MAX_SCALE, VIEWER_ZOOM_STEP } from '@mspr/shared';
   import Icon from './Icon.svelte';
   import { api } from '../lib/api.js';
 
@@ -21,11 +21,6 @@
   let dragStartY = $state(0);
   let dragStartOffsetX = $state(0);
   let dragStartOffsetY = $state(0);
-  let imgEl = $state<HTMLImageElement | null>(null);
-
-  const MIN_SCALE = 0.1;
-  const MAX_SCALE = 5;
-  const ZOOM_STEP = 0.2;
 
   const currentItem = $derived(items[currentIndex] ?? null);
   const hasPrev = $derived(currentIndex > 0);
@@ -53,18 +48,17 @@
   }
 
   function zoomIn() {
-    scale = Math.min(MAX_SCALE, scale + ZOOM_STEP);
+    scale = Math.min(VIEWER_MAX_SCALE, scale + VIEWER_ZOOM_STEP);
   }
 
   function zoomOut() {
-    scale = Math.max(MIN_SCALE, scale - ZOOM_STEP);
+    scale = Math.max(VIEWER_MIN_SCALE, scale - VIEWER_ZOOM_STEP);
   }
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -ZOOM_STEP : ZOOM_STEP;
-    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale + delta));
-    scale = newScale;
+    const delta = e.deltaY > 0 ? -VIEWER_ZOOM_STEP : VIEWER_ZOOM_STEP;
+    scale = Math.min(VIEWER_MAX_SCALE, Math.max(VIEWER_MIN_SCALE, scale + delta));
   }
 
   function handleMouseDown(e: MouseEvent) {
@@ -97,7 +91,7 @@
     }
   }
 
-  onMount(() => {
+  $effect(() => {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   });
@@ -116,7 +110,6 @@
   tabindex="-1"
   aria-label="Image viewer"
 >
-  <!-- Toolbar -->
   <header class="viewer-header">
     <span class="counter">{counterText}</span>
     <span class="filename" title={currentItem?.name}>{currentItem?.name}</span>
@@ -136,11 +129,9 @@
     </div>
   </header>
 
-  <!-- Image -->
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   {#if currentItem}
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <img
-      bind:this={imgEl}
       src={api.imageUrl(currentItem.id)}
       alt={currentItem.name}
       class="viewer-img"
@@ -152,7 +143,6 @@
     />
   {/if}
 
-  <!-- Navigation arrows -->
   {#if hasPrev}
     <button class="nav-arrow left" onclick={goPrev} aria-label="Previous image">
       <Icon name="chevron-left" size={36} />
@@ -164,7 +154,6 @@
     </button>
   {/if}
 
-  <!-- Scale indicator -->
   <div class="scale-indicator">{Math.round(scale * 100)}%</div>
 </div>
 
@@ -173,7 +162,7 @@
     position: fixed;
     inset: 0;
     background: var(--viewer-overlay-bg);
-    z-index: 1000;
+    z-index: var(--z-viewer);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -181,9 +170,7 @@
     user-select: none;
   }
 
-  .viewer-overlay:active {
-    cursor: grabbing;
-  }
+  .viewer-overlay:active { cursor: grabbing; }
 
   .viewer-header {
     position: fixed;
@@ -196,7 +183,7 @@
     align-items: center;
     justify-content: space-between;
     background: var(--viewer-header-gradient);
-    z-index: 1001;
+    z-index: var(--z-viewer-header);
     color: var(--text-primary);
     gap: 12px;
   }
@@ -273,13 +260,10 @@
     justify-content: center;
     cursor: pointer;
     transition: background 0.15s ease;
-    z-index: 1001;
+    z-index: var(--z-viewer-nav);
   }
 
-  .nav-arrow:hover {
-    background: var(--btn-bg-hover);
-  }
-
+  .nav-arrow:hover { background: var(--btn-bg-hover); }
   .nav-arrow.left { left: 16px; }
   .nav-arrow.right { right: 16px; }
 
@@ -295,24 +279,14 @@
     font-size: 0.8rem;
     font-weight: 600;
     pointer-events: none;
-    z-index: 1001;
+    z-index: var(--z-viewer-scale);
   }
 
   @media (max-width: 640px) {
-    .nav-arrow {
-      width: 40px;
-      height: 40px;
-    }
-
+    .nav-arrow { width: 40px; height: 40px; }
     .nav-arrow.left { left: 8px; }
     .nav-arrow.right { right: 8px; }
-
-    .viewer-header {
-      padding: 0 12px;
-    }
-
-    .filename {
-      font-size: 0.8rem;
-    }
+    .viewer-header { padding: 0 12px; }
+    .filename { font-size: 0.8rem; }
   }
 </style>

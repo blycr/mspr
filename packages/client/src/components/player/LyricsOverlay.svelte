@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { parseLRC, type LyricLine } from '../../lib/player/lyrics.js';
   import { api } from '../../lib/api.js';
 
@@ -10,7 +9,8 @@
 
   let { lyricId, currentTime }: Props = $props();
   let lyrics = $state<LyricLine[]>([]);
-  let activeIndex = $derived.by(() => {
+
+  const activeIndex = $derived.by(() => {
     for (let i = lyrics.length - 1; i >= 0; i--) {
       if (currentTime >= lyrics[i].time) return i;
     }
@@ -19,14 +19,11 @@
 
   let container = $state<HTMLElement | null>(null);
 
-  onMount(async () => {
-    try {
-      const res = await fetch(`${api.baseUrl}/media/lyric?id=${lyricId}`);
-      const text = await res.text();
-      lyrics = parseLRC(text);
-    } catch (e) {
-      console.error('Failed to load lyrics:', e);
-    }
+  $effect(() => {
+    fetch(`${api.baseUrl}/media/lyric?id=${lyricId}`)
+      .then(res => res.text())
+      .then(text => { lyrics = parseLRC(text); })
+      .catch(e => console.error('Failed to load lyrics:', e));
   });
 
   $effect(() => {

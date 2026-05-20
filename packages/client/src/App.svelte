@@ -1,6 +1,13 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import type { MediaItem } from '@mspr/shared';
+  import type { MediaItem, TabKey, Theme } from '@mspr/shared';
+  import {
+    LAYOUT_MOBILE_BREAKPOINT,
+    LAYOUT_SMALL_BREAKPOINT,
+    LAYOUT_GRID_MIN_COL_WIDTH_PX,
+    LAYOUT_ROW_HEIGHT_DESKTOP,
+    LAYOUT_ROW_HEIGHT_MOBILE,
+    LAYOUT_VIRTUAL_BUFFER_ROWS,
+  } from '@mspr/shared';
   import VideoPlayer from './components/player/VideoPlayer.svelte';
   import ImageViewer from './components/ImageViewer.svelte';
   import MediaCard from './components/MediaCard.svelte';
@@ -8,20 +15,24 @@
   import { api } from './lib/api.js';
   import { playlistManager } from './lib/player/playlist.js';
   import { matchesQuery } from './lib/search.js';
+  import { initTheme, applyTheme, saveTheme } from './lib/theme.js';
   import './styles/tokens.css';
 
+  /* ============================================================
+     State
+     ============================================================ */
   let items = $state<MediaItem[]>([]);
   let history = $state<MediaItem[]>([]);
   let loading = $state(true);
   let selectedItem = $state<MediaItem | null>(null);
   let searchQuery = $state('');
 
-  let activeTab = $state<'video' | 'audio' | 'image' | 'history'>('video');
-  let theme = $state<'light' | 'dark'>('dark');
+  let activeTab = $state<TabKey>('video');
+  let theme = $state<Theme>(initTheme());
   let forceLayout = $state<'desktop' | 'mobile' | null>(null);
   let windowWidth = $state(0);
   let sidebarOpen = $state(false);
-  let playMode = $state<'loop' | 'shuffle' | 'repeat-one'>(playlistManager.mode);
+  let playMode = $state(playlistManager.mode);
   let isAutoPlay = $state(false);
 
   /* Image viewer state */
@@ -35,14 +46,21 @@
   let scrollTop = $state(0);
   let containerHeight = $state(0);
 
-  const ROW_HEIGHT_DESKTOP = 280;
-  const ROW_HEIGHT_MOBILE = 220;
-  const BUFFER_ROWS = 4;
-  const MOBILE_BREAKPOINT = 640;
+  /* ============================================================
+     Constants
+     ============================================================ */
+  const TABS: { key: TabKey; label: string; icon: 'video' | 'music' | 'file' | 'clock' }[] = [
+    { key: 'video', label: 'Videos', icon: 'video' },
+    { key: 'audio', label: 'Music', icon: 'music' },
+    { key: 'image', label: 'Images', icon: 'file' },
+    { key: 'history', label: 'Recent', icon: 'clock' },
+  ];
 
-  const isMobile = $derived(forceLayout === 'mobile' || (forceLayout === null && windowWidth <= MOBILE_BREAKPOINT));
-  const rowHeight = $derived(isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP);
-
+  /* ============================================================
+     Derived state
+     ============================================================ */
+  const isMobile = $derived(forceLayout === 'mobile' || (forceLayout === null && windowWidth <= LAYOUT_MOBILE_BREAKPOINT));
+  const rowHeight = $derived(isMobile ? LAYOUT_ROW_HEIGHT_MOBILE : LAYOUT_ROW_HEIGHT_DESKTOP);
 
   const filteredItems = $derived.by(() => {
     let base = activeTab === 'history' ? history : items;
@@ -57,41 +75,60 @@
   const totalRows = $derived(Math.ceil(filteredItems.length / gridCols));
   const totalHeight = $derived(totalRows * rowHeight);
 
-  const startRow = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - BUFFER_ROWS));
-  const endRow = $derived(Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / rowHeight) + BUFFER_ROWS));
+  const startRow = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - LAYOUT_VIRTUAL_BUFFER_ROWS));
+  const endRow = $derived(Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / rowHeight) + LAYOUT_VIRTUAL_BUFFER_ROWS));
 
   const startIndex = $derived(startRow * gridCols);
   const endIndex = $derived(Math.min(endRow * gridCols, filteredItems.length));
   const visibleItems = $derived(filteredItems.slice(startIndex, endIndex));
   const topOffset = $derived(startRow * rowHeight);
 
-  /* Reset scroll on tab/filter change */
+  /* ============================================================
+     Effects
+     ============================================================ */
   $effect(() => {
     activeTab;
     searchQuery;
     if (scrollEl) scrollEl.scrollTop = 0;
   });
 
-  /* Theme sync */
   $effect(() => {
-    document.documentElement.dataset.theme = theme;
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0a0a0f' : '#f0f0f5');
+    applyTheme(theme);
   });
 
-  function initTheme() {
-    const saved = localStorage.getItem('msp-theme');
-    if (saved === 'light' || saved === 'dark') {
-      theme = saved;
-    } else {
-      const hour = new Date().getHours();
-      theme = hour >= 6 && hour < 18 ? 'light' : 'dark';
-    }
-  }
+  $effect(() => {
+    windowWidth = window.innerWidth;
+    const handleResize = () => { windowWidth = window.innerWidth; };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  });
 
+  $effect(() => {
+    fetchMedia();
+  });
+
+  $effect(() => {
+    if (!scrollEl) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const cr = entry.contentRect;
+        containerHeight = cr.height;
+        const w = cr.width;
+        if (w <= LAYOUT_SMALL_BREAKPOINT) gridCols = 2;
+        else if (w <= LAYOUT_MOBILE_BREAKPOINT) gridCols = 2;
+        else gridCols = Math.max(2, Math.floor(w / LAYOUT_GRID_MIN_COL_WIDTH_PX));
+      }
+    });
+    ro.observe(scrollEl);
+    return () => ro.disconnect();
+  });
+
+  /* ============================================================
+     Actions
+     ============================================================ */
   function toggleTheme() {
     theme = theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('msp-theme', theme);
+    saveTheme(theme);
   }
 
   function toggleLayout() {
@@ -113,32 +150,6 @@
       loading = false;
     }
   }
-
-  onMount(() => {
-    initTheme();
-    fetchMedia();
-    const checkWidth = () => { windowWidth = window.innerWidth; };
-    checkWidth();
-    window.addEventListener('resize', checkWidth);
-    return () => window.removeEventListener('resize', checkWidth);
-  });
-
-  /* ResizeObserver: column count + viewport height */
-  $effect(() => {
-    if (!scrollEl) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const cr = entry.contentRect;
-        containerHeight = cr.height;
-        const w = cr.width;
-        if (w <= 480) gridCols = 2;
-        else if (w <= MOBILE_BREAKPOINT) gridCols = 2;
-        else gridCols = Math.max(2, Math.floor(w / 220));
-      }
-    });
-    ro.observe(scrollEl);
-    return () => ro.disconnect();
-  });
 
   function handleCardClick(item: MediaItem) {
     if (item.kind === 'video' || item.kind === 'audio') {
@@ -190,13 +201,6 @@
       console.error('Failed to clear history:', e);
     }
   }
-
-  const tabs = [
-    { key: 'video' as const, label: 'Videos', icon: 'video' as const },
-    { key: 'audio' as const, label: 'Music', icon: 'music' as const },
-    { key: 'image' as const, label: 'Images', icon: 'file' as const },
-    { key: 'history' as const, label: 'Recent', icon: 'clock' as const },
-  ];
 </script>
 
 <main class="app-container" class:force-mobile={forceLayout === 'mobile'} class:force-desktop={forceLayout === 'desktop'}>
@@ -219,7 +223,7 @@
       <div class="drawer-overlay" role="presentation" onclick={() => sidebarOpen = false}>
         <div class="mobile-drawer" aria-label="Navigation menu" role="dialog" tabindex="-1" onclick={e => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') sidebarOpen = false; }}>
           <div class="drawer-header">
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="drawer-header-brand">
               <Icon name="logo" size={22} />
               <span class="logo-text">MSP</span>
             </div>
@@ -228,7 +232,7 @@
             </button>
           </div>
           <nav class="drawer-nav">
-            {#each tabs as tab}
+            {#each TABS as tab}
               <button
                 class:active={activeTab === tab.key}
                 onclick={() => { activeTab = tab.key; sidebarOpen = false; }}
@@ -263,7 +267,7 @@
       </div>
 
       <nav class="side-nav" aria-label="Library categories">
-        {#each tabs as tab}
+        {#each TABS as tab}
           <button
             class:active={activeTab === tab.key}
             onclick={() => activeTab = tab.key}
@@ -511,7 +515,7 @@
     background: var(--header-bg);
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--sidebar-border);
-    z-index: 100;
+    z-index: var(--z-header);
     align-items: center;
     padding: 0 12px;
     gap: 10px;
@@ -562,7 +566,7 @@
     position: fixed;
     inset: 0;
     background: var(--overlay-bg);
-    z-index: 200;
+    z-index: var(--z-drawer);
     display: flex;
   }
 
@@ -589,6 +593,12 @@
     margin-bottom: 24px;
     padding: 0 8px;
     color: var(--accent-color);
+  }
+
+  .drawer-header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .drawer-nav {

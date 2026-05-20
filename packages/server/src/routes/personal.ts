@@ -1,16 +1,17 @@
 import { Elysia, t } from 'elysia';
-import db from '../db/sqlite.js';
+import { default as db } from '../db/sqlite.js';
+import { DB_TABLES } from '../constants/index.js';
 
 export const personalRoutes = new Elysia({ prefix: '/personal' })
   .get('/progress', ({ query }) => {
-    const row = db.query('SELECT * FROM playback_progress WHERE mediaId = ?').get(query.id) as any;
+    const row = db.query(`SELECT * FROM ${DB_TABLES.PLAYBACK_PROGRESS} WHERE mediaId = ?`).get(query.id);
     return row || { time: 0 };
   }, {
     query: t.Object({ id: t.String() })
   })
   .post('/progress', ({ body }) => {
     db.run(
-      'INSERT OR REPLACE INTO playback_progress (mediaId, time, updatedAt) VALUES (?, ?, ?)',
+      `INSERT OR REPLACE INTO ${DB_TABLES.PLAYBACK_PROGRESS} (mediaId, time, updatedAt) VALUES (?, ?, ?)`,
       [body.id, body.time, Date.now()]
     );
     return { success: true };
@@ -23,26 +24,26 @@ export const personalRoutes = new Elysia({ prefix: '/personal' })
   .get('/history', () => {
     return db.query(`
       SELECT m.*, p.time, p.updatedAt 
-      FROM media_items m
-      JOIN playback_progress p ON m.id = p.mediaId
+      FROM ${DB_TABLES.MEDIA_ITEMS} m
+      JOIN ${DB_TABLES.PLAYBACK_PROGRESS} p ON m.id = p.mediaId
       ORDER BY p.updatedAt DESC
       LIMIT 20
     `).all();
   })
   .delete('/history', () => {
-    db.run('DELETE FROM playback_progress');
+    db.run(`DELETE FROM ${DB_TABLES.PLAYBACK_PROGRESS}`);
     return { success: true };
   })
   .get('/favorites', () => {
     return db.query(`
-      SELECT m.* FROM media_items m
-      JOIN favorites f ON m.id = f.mediaId
+      SELECT m.* FROM ${DB_TABLES.MEDIA_ITEMS} m
+      JOIN ${DB_TABLES.FAVORITES} f ON m.id = f.mediaId
       ORDER BY f.createdAt DESC
     `).all();
   })
   .post('/favorites', ({ body }) => {
     db.run(
-      'INSERT OR REPLACE INTO favorites (mediaId, createdAt) VALUES (?, ?)',
+      `INSERT OR REPLACE INTO ${DB_TABLES.FAVORITES} (mediaId, createdAt) VALUES (?, ?)`,
       [body.id, Date.now()]
     );
     return { success: true };
@@ -50,7 +51,7 @@ export const personalRoutes = new Elysia({ prefix: '/personal' })
     body: t.Object({ id: t.String() })
   })
   .delete('/favorites', ({ body }) => {
-    db.run('DELETE FROM favorites WHERE mediaId = ?', [body.id]);
+    db.run(`DELETE FROM ${DB_TABLES.FAVORITES} WHERE mediaId = ?`, [body.id]);
     return { success: true };
   }, {
     body: t.Object({ id: t.String() })

@@ -42,9 +42,12 @@ Key capabilities:
 ├── packages/
 │   ├── shared/                # Pure TypeScript types & constants
 │   │   └── src/
-│   │       ├── index.ts
-│   │       ├── types/media.ts
-│   │       └── constants/extensions.ts
+│   │       ├── index.ts              # Re-exports
+│   │       ├── types/media.ts        # Domain types
+│   │       └── constants/
+│   │           ├── index.ts          # Constants barrel
+│   │           ├── media.ts          # Shared constants (codecs, transcoding, layout, player, theme)
+│   │           └── extensions.ts     # Extension mappings
 │   ├── server/                # Bun + Elysia backend
 │   │   ├── src/
 │   │   │   ├── index.ts              # Entry point
@@ -61,7 +64,11 @@ Key capabilities:
 │   │   │   │   ├── thumbnail-generator.ts
 │   │   │   │   └── hw-accel-detector.ts
 │   │   │   ├── security/middleware.ts
-│   │   │   └── utils/subtitle-converter.ts
+│   │   │   └── utils/
+│   │   │       ├── errors.ts         # Unified error response factories
+│   │   │       ├── response.ts       # Response helpers
+│   │   │       ├── media-path.ts     # Path resolver with sandbox validation
+│   │   │       └── subtitle-converter.ts
 │   │   └── data/
 │   │       ├── config.json           # Runtime configuration (gitignored)
 │   │       ├── mspr.db               # SQLite database (gitignored)
@@ -70,14 +77,29 @@ Key capabilities:
 │       ├── src/
 │       │   ├── main.ts
 │       │   ├── App.svelte            # Root component (single view, no router)
-│       │   ├── app.css
-│       │   ├── styles/tokens.css     # Glassmorphism design tokens
-│       │   ├── components/player/
-│       │   │   ├── VideoPlayer.svelte
-│       │   │   └── LyricsOverlay.svelte
-│       │   └── lib/player/
-│       │       ├── engine.ts
-│       │       └── lyrics.ts
+│       │   ├── styles/tokens.css     # Glassmorphism design tokens + z-index scale + spacing scale
+│       │   ├── components/
+│       │   │   ├── Icon.svelte
+│       │   │   ├── MediaCard.svelte
+│       │   │   ├── ImageViewer.svelte
+│       │   │   └── player/
+│       │   │       ├── VideoPlayer.svelte
+│       │   │       └── LyricsOverlay.svelte
+│       │   ├── lib/
+│       │   │   ├── api.ts
+│       │   │   ├── format.ts
+│       │   │   ├── icons.ts          # Icon path map
+│       │   │   ├── search.ts
+│       │   │   ├── theme.ts          # Theme init / apply / save helpers
+│       │   │   └── player/
+│       │   │       ├── engine.ts
+│       │   │       ├── lyrics.ts
+│       │   │       └── playlist.ts
+│       │   └── constants/
+│       │       ├── index.ts          # Client constants barrel
+│       │       ├── layout.ts         # Breakpoints, grid, spacing, z-index
+│       │       ├── player.ts         # Player timing & sizing constants
+│       │       └── api.ts            # Endpoint URLs
 │       ├── index.html
 │       └── vite.config.ts
 ```
@@ -122,14 +144,18 @@ Path mapping in root `tsconfig.json`:
 - **Import extensions**: TypeScript source files use `.js` extensions in relative imports (e.g., `import { foo } from './bar.js'`). This is required for ESM resolution.
 - **Shared imports**: Import from `@mspr/shared` without extension (e.g., `import { MediaItem } from '@mspr/shared'`).
 - **Formatting**: No explicit formatter (Prettier/Biome) is configured. Keep existing indentation (2 spaces) and brace style.
+- **Magic numbers**: Extract into `UPPER_SNAKE_CASE` constants. Shared constants live in `@mspr/shared`; server/client-specific constants live in their respective `constants/` directories.
+- **Type safety**: Avoid `any`. Use precise interfaces/union types. Database queries use typed row interfaces (`MediaItemRow`, etc.).
 - **Svelte 5 patterns**:
   - Use runes: `$state`, `$derived`, `$effect`, `$props`.
+  - Prefer `$effect` over `onMount` for side effects (cleanup is automatic).
   - Components are mounted via `mount()` in `main.ts`, not instantiated with `new`.
   - Transitions are used in templates (e.g., `transition:fade`).
 - **Server patterns**:
   - Elysia routes are built with `.get()`, `.post()`, etc., often with `t` validation schemas from `elysia`.
   - Database queries use raw SQL against `bun:sqlite`.
   - Async I/O prefers `Bun.file()`, `Bun.spawn()`, and `fs.promises` / `fs.*Sync` where appropriate.
+  - Use `utils/errors.ts` for consistent HTTP error responses (404/403/500).
 
 ---
 
@@ -223,7 +249,8 @@ The client hardcodes the server base URL to `http://localhost:3000`.
 ## Scanner Behavior
 
 - Scans all directories listed in `config.json` recursively.
-- Generates deterministic IDs with `crypto.createHash('md5').update(path.join(shareLabel, relPath)).digest('hex')`.
+- Generates deterministic IDs with `crypto.createHash('md5').update(path.posix.join(shareLabel, relPath)).digest('hex')` (normalized to forward slashes for cross-platform consistency).
+- Pre-compiles `excludeNames` regex patterns once before scanning (not inside the hot loop).
 - Associates sidecars by filename prefix within the same directory:
   - Subtitles (`.srt`, `.vtt`, `.ass`) → videos
   - Lyrics (`.lrc`) → audio
@@ -236,7 +263,7 @@ The client hardcodes the server base URL to `http://localhost:3000`.
 
 - **IP filtering** exists in `security/middleware.ts` but is not integrated into the main Elysia app yet.
 - **PIN** logic reads the `X-MSP-PIN` header in some planned routes but is not enforced on existing endpoints.
-- **Path sandbox** — routes reconstruct absolute paths by joining `share.path` + `item.relPath`. Always validate that the resolved path stays inside the share root.
+- **Path sandbox** — `resolveMediaPath()` validates that the resolved path stays inside the share root. Returns `null` if traversal is detected.
 - **No HTTPS** — intended for trusted LAN use only.
 - **No rate limiting** implemented yet.
 - **No auth tokens / JWT** yet.

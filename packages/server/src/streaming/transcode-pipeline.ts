@@ -1,5 +1,58 @@
-import { hwAccelDetector } from './hw-accel-detector.js';
-import { ProbeResult } from '@mspr/shared';
+import type { ProbeResult } from '@mspr/shared';
+import {
+  hwAccelDetector,
+} from './hw-accel-detector.js';
+import {
+  TRANSCODE_AUDIO_BITRATE,
+  TRANSCODE_AUDIO_CHANNELS,
+  TRANSCODE_VIDEO_CRF,
+  TRANSCODE_NVENC_CQ,
+  TRANSCODE_NVENC_PRESET,
+  TRANSCODE_QSV_PRESET,
+  TRANSCODE_CPU_PRESET,
+  TRANSCODE_MOVFLAGS,
+  TRANSCODE_OUTPUT_FORMAT,
+  TRANSCODE_AUDIO_CODEC_MP3,
+  TRANSCODE_AUDIO_CODEC_AAC,
+  TRANSCODE_VIDEO_CODEC_CPU,
+} from '@mspr/shared';
+import { LOG_PREFIX } from '../constants/index.js';
+
+function checkFfmpegError(stderr: string): void {
+  if (stderr.includes('Error')) {
+    console.error(`${LOG_PREFIX.TRANSCODE} FFmpeg Error:`, stderr);
+  }
+}
+
+function buildAudioArgs(offset: number): string[] {
+  const args: string[] = [];
+  if (offset > 0) {
+    args.push('-ss', offset.toString());
+  }
+  return args;
+}
+
+function buildVideoArgs(hw: ReturnType<typeof hwAccelDetector.getResult>, probe: ProbeResult): string[] {
+  const args: string[] = [];
+
+  if (probe.needVideoTranscode) {
+    if (hw.preferred !== 'cpu') {
+      const encoder = hw.encoderMap[hw.preferred];
+      args.push('-c:v', encoder);
+      if (hw.preferred === 'nvenc') {
+        args.push('-preset', TRANSCODE_NVENC_PRESET, '-cq', TRANSCODE_NVENC_CQ.toString());
+      } else if (hw.preferred === 'qsv') {
+        args.push('-preset', TRANSCODE_QSV_PRESET);
+      }
+    } else {
+      args.push('-c:v', TRANSCODE_VIDEO_CODEC_CPU, '-preset', TRANSCODE_CPU_PRESET, '-crf', TRANSCODE_VIDEO_CRF.toString());
+    }
+  } else {
+    args.push('-c:v', 'copy');
+  }
+
+  return args;
+}
 
 export class TranscodePipeline {
   public async transcode(filePath: string, probe: ProbeResult, offset: number = 0): Promise<Response> {
@@ -12,31 +65,23 @@ export class TranscodePipeline {
         '-hide_banner',
         '-y',
         '-loglevel', 'warning',
+        ...buildAudioArgs(offset),
+        '-i', filePath,
+        ...(probe.audioCodec ? ['-map', '0:a:0'] : []),
+        '-c:a', TRANSCODE_AUDIO_CODEC_MP3,
+        '-b:a', TRANSCODE_AUDIO_BITRATE,
+        '-ac', TRANSCODE_AUDIO_CHANNELS.toString(),
+        '-f', 'mp3',
+        'pipe:1'
       ];
 
-      if (offset > 0) {
-        args.push('-ss', offset.toString());
-      }
-
-      args.push('-i', filePath);
-
-      if (probe.audioCodec) {
-        args.push('-map', '0:a:0');
-      }
-
-      args.push('-c:a', 'libmp3lame', '-b:a', '192k', '-ac', '2');
-      args.push('-f', 'mp3', 'pipe:1');
-
-      console.log('[Transcode] Audio-only -> MP3:', args.join(' '));
+      console.log(`${LOG_PREFIX.TRANSCODE} Audio-only -> MP3:`, args.join(' '));
 
       const process = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
 
-      // Collect stdout into a buffer (avoid ReadableStream issues)
       const stdout = await new Response(process.stdout).arrayBuffer();
       const stderr = await new Response(process.stderr).text();
-      if (stderr.includes('Error')) {
-        console.error('[Transcode] FFmpeg Error:', stderr);
-      }
+      checkFfmpegError(stderr);
 
       return new Response(stdout, {
         headers: {
@@ -54,49 +99,24 @@ export class TranscodePipeline {
       '-loglevel', 'warning',
       '-ss', offset.toString(),
       '-i', filePath,
+      ...(probe.videoCodec ? ['-map', '0:v:0'] : []),
+      ...(probe.audioCodec ? ['-map', '0:a:0'] : []),
+      ...buildVideoArgs(hw, probe),
+      ...(probe.needAudioTranscode
+        ? ['-c:a', TRANSCODE_AUDIO_CODEC_AAC, '-b:a', TRANSCODE_AUDIO_BITRATE, '-ac', TRANSCODE_AUDIO_CHANNELS.toString()]
+        : probe.audioCodec ? ['-c:a', 'copy'] : []),
+      '-movflags', TRANSCODE_MOVFLAGS,
+      '-f', TRANSCODE_OUTPUT_FORMAT,
+      'pipe:1'
     ];
 
-    if (probe.videoCodec) {
-      args.push('-map', '0:v:0');
-    }
-    if (probe.audioCodec) {
-      args.push('-map', '0:a:0');
-    }
-
-    if (probe.needVideoTranscode) {
-      if (hw.preferred !== 'cpu') {
-        const encoder = hw.encoderMap[hw.preferred];
-        args.push('-c:v', encoder);
-        if (hw.preferred === 'nvenc') args.push('-preset', 'p4', '-cq', '23');
-        else if (hw.preferred === 'qsv') args.push('-preset', 'medium');
-      } else {
-        args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23');
-      }
-    } else {
-      args.push('-c:v', 'copy');
-    }
-
-    if (probe.needAudioTranscode) {
-      args.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
-    } else if (probe.audioCodec) {
-      args.push('-c:a', 'copy');
-    }
-
-    args.push(
-      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-      '-f', 'mp4',
-      'pipe:1'
-    );
-
-    console.log('[Transcode] Video -> fMP4:', args.join(' '));
+    console.log(`${LOG_PREFIX.TRANSCODE} Video -> fMP4:`, args.join(' '));
 
     const process = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
 
     const stdout = await new Response(process.stdout).arrayBuffer();
     const stderr = await new Response(process.stderr).text();
-    if (stderr.includes('Error')) {
-      console.error('[Transcode] FFmpeg Error:', stderr);
-    }
+    checkFfmpegError(stderr);
 
     return new Response(stdout, {
       headers: {
