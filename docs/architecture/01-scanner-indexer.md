@@ -298,7 +298,7 @@ MediaIndex {
   byId:         Map<string, MediaItem>           // ID 快查
   byKind:       Map<MediaKind, MediaItem[]>       // 按分类查
   byShare:      Map<string, MediaItem[]>          // 按共享目录查
-  allItems:     MediaItem[]                       // 全量列表（前端 /api/media 返回）
+  allItems:     MediaItem[]                       // 全量列表（前端 GET /media 返回）
 }
 ```
 
@@ -330,7 +330,7 @@ MediaIndex {
 |:---|:---|:---|
 | `getMediaIndex()` | 流媒体模块、个性化模块 | 获取当前内存索引实例 |
 | `getItemById(id)` | 流媒体模块（流式传输） | 根据 ID 获取单个 MediaItem（含绝对路径） |
-| `triggerScan(force)` | API 路由（`/api/media?refresh=1`） | 触发扫描 |
+| `triggerScan(force)` | API 路由（`POST /media/refresh`） | 触发扫描 |
 | `getShareRegistry()` | 安全模块（路径沙箱验证） | 获取注册的共享目录列表 |
 
 ---

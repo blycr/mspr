@@ -33,7 +33,14 @@
 ```
 mspr/
 ├── docs/                          # 架构与设计文档
-│   └── architecture/              # 本系列文档
+│   ├── architecture/              # 模块设计文档
+│   ├── evolution/                 # 变更日志与交接记录
+│   └── spec/                      # 用户需求与架构概览
+│
+├── scripts/                       # 启动与清理脚本
+│   ├── cleanup.mjs                # 清理旧构建和残留进程
+│   ├── dev.mjs                    # 一键启动开发模式
+│   └── start.mjs                  # 一键启动生产模式
 │
 ├── packages/                      # Monorepo 工作区
 │   ├── shared/                    # 前后端共享类型与常量

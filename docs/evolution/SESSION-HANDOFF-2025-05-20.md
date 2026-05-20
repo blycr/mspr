@@ -7,20 +7,21 @@
 | 后端 | http://localhost:3000 | 运行中 (production) |
 | 前端 | `packages/client/dist/` | 已 build |
 
-**启动命令（dev）：**
+**启动命令：**
 ```bash
-# 后端
-cd packages/server && bun --watch src/index.ts
+# 开发模式（一键启动 server + client，自动清理残留进程和旧构建）
+bun run dev
 
-# 前端（另开终端）
-cd packages/client && bunx vite --host
+# 生产模式（build + 启动 server，自动 serve 前端静态文件）
+bun run start
+
+# 单独启动（高级）
+bun run dev:server   # backend only
+bun run dev:client   # Vite dev server only
+bun run build        # build client
 ```
 
-**Build 命令：**
-```bash
-cd packages/client && bunx vite build
-cd packages/server && bun src/index.ts
-```
+Server 启动时自动检测并打印局域网 IP（如 `http://192.168.1.xxx:3000`），同网络设备可直接访问。
 
 ---
 
@@ -144,6 +145,48 @@ if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext
 - 移动端 active line：仅 `text-shadow`（去掉 scale，防止溢出被裁）
 - 移除 `mask-image` 渐变（避免边缘淡出）
 
+### 12. 启动脚本系统
+
+**问题：** 开发模式需要开两个终端，生产模式 build 后 server 不 serve 前端静态文件，启动前残留进程和旧构建导致冲突。
+
+**新增脚本：**
+- `scripts/cleanup.mjs` — 删除 `packages/client/dist/`，通过端口扫描（3000/5173/5174）+ PID 文件双重清理残留的 bun/node/vite 进程，只匹配进程名不误杀系统程序
+- `scripts/dev.mjs` — `cleanup` → 启动 server + client → 记录 PID → Ctrl+C 时 `taskkill /T /F` 整棵树
+- `scripts/start.mjs` — `cleanup` → `build` → 启动生产 server
+
+**根 `package.json`：**
+- `bun run dev` → `bun scripts/dev.mjs`
+- `bun run start` → `bun scripts/start.mjs`
+
+### 13. FFmpeg 硬件加速检测修复
+
+**问题：** 所有视频走 CPU 转码（`libx264`），GPU 未启用。
+
+**根因 1：** `testEncoder` 用 `nullsrc=s=64x64:d=1` 测试编码器，64×64 像素低于 NVENC/AMF 最小分辨率限制，初始化直接失败。
+**根因 2：** `testEncoder` 只检查 exit code，但 ffmpeg 编码失败时 exit code 也可能是 0（"Conversion failed" 但返回 0）。
+
+**修复：**
+- 测试分辨率改为 `testsrc=duration=1:size=320x240:rate=1`
+- 同时检查 stderr 的 `Error`/`failed` 关键字和 stdout 中是否有实际编码的帧
+- **关键发现：** ffmpeg 把所有输出（包括 `frame=` 进度）写到了 stderr，stdout 是空的。`wroteFrames` 检查对象从 stdout 改为 stderr
+
+### 14. Remux 直通修复
+
+**问题：** MKV 里的 h264+aac 被全量重新编码（浪费算力），而不是只换容器。
+
+**根因：** `transcode-pipeline.ts` 中 `probe.needVideoTranscode || probe.strategy === 'remux'` 把 remux 也推进了重新编码分支。
+
+**修复：** 改为 `probe.needVideoTranscode`，remux 时走 `-c:v copy -c:a copy`（只换容器，不重新编码）。
+
+### 15. 启动 URL 高亮与局域网 IP 显示
+
+**问题：** 启动后终端中 URL 被大量日志淹没，用户找不到访问地址；局域网设备需要手动猜测 IP。
+
+**修复：**
+- Server 启动日志中的 URL 使用 ANSI 加粗 + 青色高亮
+- `scripts/dev.mjs` 和 `scripts/start.mjs` 在启动 2 秒后打印醒目横幅
+- Server 自动检测局域网 IP（过滤虚拟网卡和链路本地地址），同时打印 localhost 和 LAN 地址
+
 ---
 
 ## 关键已知问题（未修复）
@@ -193,14 +236,21 @@ if (kind === 'other' && !SUBTITLE_EXTS.includes(ext) && !LYRIC_EXTS.includes(ext
 - `packages/client/src/lib/api.ts`
 - `packages/client/src/lib/format.ts`
 - `packages/client/src/lib/player/playlist.ts`
+- `scripts/cleanup.mjs` — 进程与构建清理
+- `scripts/dev.mjs` — 一键开发启动
+- `scripts/start.mjs` — 一键生产启动
 
 ### 修改（按重要性排序）
 - `packages/client/src/App.svelte` — 虚拟滚动 + 移动端适配 + 播放列表集成
 - `packages/client/src/components/player/VideoPlayer.svelte` — 音频UI重构 + seek修复 + 播放模式 + 智能续播
 - `packages/client/src/components/player/LyricsOverlay.svelte` — 歌词高亮优化
-- `packages/server/src/streaming/transcode-pipeline.ts` — 音频转码 `-ss` 位置修复
+- `packages/server/src/streaming/transcode-pipeline.ts` — 音频转码 `-ss` 位置修复 + remux 直通修复
+- `packages/server/src/streaming/hw-accel-detector.ts` — 分辨率修复 + stderr 检测修复
+- `packages/server/src/index.ts` — 静态文件服务 + LAN IP 检测 + URL 高亮
 - `packages/client/src/lib/api.ts` — 动态局域网IP
 - `packages/server/src/scanner/engine.ts` — 文件类型白名单
+- `package.json` — 新增 `dev`/`start` 脚本
+- `README.md` / `AGENTS.md` — 启动说明更新
 - `packages/client/index.html` — title + theme-color
 - `packages/client/src/styles/tokens.css` — tap-highlight + selection
 

@@ -126,6 +126,47 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - Manual click on card → auto-seeks to saved progress if > 10 seconds.
 - Auto-advance (`onNext`/`onPrev`/`handleEnded`) → starts from beginning.
 
+### 7. FFmpeg Hardware Acceleration Detection Fix — `hw-accel-detector.ts`
+
+**Problem:** All video transcoding fell back to CPU (`libx264`) even on systems with GPU.
+
+**Root cause 1:** `testEncoder` used `nullsrc=s=64x64:d=1` to probe encoders. 64×64 is below the minimum frame dimension supported by NVENC/AMF, causing initialization failure.
+**Root cause 2:** `testEncoder` only checked exit code. FFmpeg returns exit code 0 even when encoding fails ("Conversion failed!").
+**Root cause 3:** FFmpeg writes all output (including `frame=` progress) to **stderr**, leaving stdout empty. The `wroteFrames` check was inspecting stdout, so it was always false.
+
+**Fix:**
+- Changed test source to `testsrc=duration=1:size=320x240:rate=1`
+- Check stderr for `Error`/`failed` keywords
+- Inspect stderr (not stdout) for `frame=` to confirm frames were actually encoded
+
+### 8. Remux Passthrough Fix — `transcode-pipeline.ts`
+
+**Problem:** MKV containers with h264+aac were fully re-encoded instead of simply remuxed, wasting CPU/GPU cycles.
+
+**Root cause:** The condition `probe.needVideoTranscode || probe.strategy === 'remux'` incorrectly sent remux scenarios through the re-encode branch.
+
+**Fix:** Changed to `probe.needVideoTranscode`. Remux now correctly uses `-c:v copy -c:a copy` (container swap only, no re-encoding).
+
+### 9. Launch Script System
+
+**Problem:** Dev mode required two terminals. Production mode did not serve frontend static files from the server. Lingering processes and stale builds caused conflicts on restart.
+
+**New files:**
+- `scripts/cleanup.mjs` — Deletes `packages/client/dist/`, kills stale bun/node/vite processes by port scan (3000/5173/5174) + PID file. Matches process names only; never kills system processes.
+- `scripts/dev.mjs` — Cleanup → spawn server + client → record PIDs → Ctrl+C kills entire process tree via `taskkill /T /F`.
+- `scripts/start.mjs` — Cleanup → build → start production server.
+
+**Root `package.json`:** `bun run dev` and `bun run start` are now one-command operations.
+
+### 10. URL Highlighting & LAN IP Display
+
+**Problem:** Server URL was buried in log noise. LAN devices had to guess the server's IP address.
+
+**Fix:**
+- Server startup URL uses ANSI bold + cyan highlight
+- `scripts/dev.mjs` and `scripts/start.mjs` print a bold banner 2 seconds after startup
+- Server auto-detects LAN IPs (filters virtual adapters and link-local addresses), printing both localhost and LAN URLs
+
 ---
 
 ## Known Issues (Unresolved)
@@ -153,6 +194,9 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - `packages/client/src/lib/api.ts`
 - `packages/client/src/lib/format.ts`
 - `packages/client/src/lib/player/playlist.ts`
+- `scripts/cleanup.mjs`
+- `scripts/dev.mjs`
+- `scripts/start.mjs`
 - `docs/evolution/2025-05-20-ui-rewrite-and-bugfixes.md`
 - `docs/evolution/SESSION-HANDOFF-2025-05-20.md`
 
@@ -171,6 +215,8 @@ Full-stack bugfix and frontend UX overhaul. Eliminated emoji abuse, fixed audio 
 - `packages/server/src/index.ts`
 - `packages/server/src/scanner/engine.ts`
 - `packages/shared/src/constants/extensions.ts`
+- `package.json`
+- `README.md`
 - `AGENTS.md`
 
 ### Deleted

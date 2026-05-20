@@ -76,13 +76,22 @@ export class HWAccelDetector {
         ffmpegCmd,
         '-hide_banner',
         '-f', 'lavfi',
-        '-i', 'nullsrc=s=64x64:d=1',
+        '-i', 'testsrc=duration=1:size=320x240:rate=1',
         '-c:v', encoder,
         '-f', 'null',
         '-'
-      ], { stderr: 'pipe' });
+      ], { stderr: 'pipe', stdout: 'pipe' });
+
+      const stdout = await new Response(process.stdout).text();
+      const stderr = await new Response(process.stderr).text();
       const status = await process.exited;
-      return status === 0;
+
+      // FFmpeg writes all output (including progress) to stderr, stdout is empty
+      const output = stderr;
+      const hasErrors = output.includes('Error') || output.includes('failed');
+      const wroteFrames = output.includes('frame=') && !output.includes('frame=    0');
+
+      return status === 0 && !hasErrors && wroteFrames;
     } catch {
       return false;
     }

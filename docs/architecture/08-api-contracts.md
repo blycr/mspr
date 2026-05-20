@@ -36,31 +36,35 @@
 
 ## 2. 媒体发现与导航 (Discovery & Navigation)
 
-### 2.1 全量媒体列表获取 (GET /api/media)
-- **安全级**: 需 Session 鉴权
-- **参数**: 
-  - `refresh=1` (Optional, 强制触发服务端重新扫描)
+### 2.1 全量媒体列表获取 (GET /media)
+- **安全级**: 开放
 - **成功响应 (200 OK)**:
   ```json
-  {
-    "scanTime": 1716180000000,
-    "items": [
-      {
-        "id": "a1b2c3d4e5f6g7h8",
-        "relPath": "Movies/Inception.2010.mp4",
-        "name": "Inception.2010",
-        "ext": "mp4",
-        "kind": "video",
-        "shareLabel": "电影",
-        "size": 2147483648,
-        "modTime": 1716100000000,
-        "hasCover": false
-      }
-    ]
-  }
+  [
+    {
+      "id": "a1b2c3d4e5f6g7h8",
+      "relPath": "Movies/Inception.2010.mp4",
+      "name": "Inception.2010",
+      "ext": "mp4",
+      "kind": "video",
+      "shareLabel": "电影",
+      "size": 2147483648,
+      "modTime": 1716100000000,
+      "subtitles": ["subtitle-id-1"],
+      "coverId": null,
+      "lyricsId": null
+    }
+  ]
   ```
 
-### 2.2 播放决策探测 (GET /api/probe)
+### 2.2 触发媒体扫描 (POST /media/refresh)
+- **安全级**: 开放
+- **成功响应 (200 OK)**:
+  ```json
+  { "success": true }
+  ```
+
+### 2.2 播放决策探测 (GET /media/probe)
 - **安全级**: 需 Session 鉴权
 - **参数**:
   - `id=a1b2c3d4e5f6g7h8` (必填, 媒体 ID)
@@ -84,7 +88,7 @@
 
 ## 3. 流媒体传输 (Streaming)
 
-### 3.1 媒体流传输 (GET /api/stream)
+### 3.1 媒体流传输 (GET /media/stream)
 - **安全级**: 需 Session 鉴权
 - **参数**:
   - `id=a1b2c3d4e5f6g7h8` (必填, 媒体 ID)
@@ -102,7 +106,7 @@
   - `Content-Type: video/mp4`
   - `X-MSP-Transcode: active`
 
-### 3.2 视频缩略图 (GET /api/thumbnail)
+### 3.2 视频缩略图 (GET /media/thumbnail)
 - **安全级**: 需 Session 鉴权
 - **参数**:
   - `id=a1b2c3d4e5f6g7h8` (必填)
@@ -110,33 +114,40 @@
   - `Content-Type: image/webp`
   - 返回 WebP 二进制图片数据（缓存命中或实时生成）。
 
-### 3.3 外挂字幕加载 (GET /api/subtitle)
-- **安全级**: 需 Session 鉴权
+### 3.3 外挂字幕加载 (GET /media/subtitle)
+- **安全级**: 开放
 - **参数**:
   - `id=sub_id_string` (必填)
 - **成功响应**:
-  - `Content-Type: text/vtt; charset=utf-8`
+  - `Content-Type: text/vtt`
   - 返回转换后的标准 WebVTT 字幕数据。
+
+### 3.4 歌词加载 (GET /media/lyric)
+- **安全级**: 开放
+- **参数**:
+  - `id=lyric_id_string` (必填)
+- **成功响应**:
+  - 返回原始歌词文件内容（如 LRC 格式）。
 
 ---
 
 ## 4. 进度同步与个性化 (UX Synchronization)
 
-### 4.1 进度保存 (POST /api/progress)
-- **安全级**: 需 Session 鉴权
+### 4.1 进度保存 (POST /personal/progress)
+- **安全级**: 开放
 - **请求 Payload**:
   ```json
   {
-    "mediaId": "a1b2c3d4e5f6g7h8",
+    "id": "a1b2c3d4e5f6g7h8",
     "time": 125.4
   }
   ```
 - **成功响应 (200 OK)**:
   ```json
-  { "status": "saved" }
+  { "success": true }
   ```
 
-### 4.2 进度获取 (GET /api/progress)
+### 4.2 进度获取 (GET /personal/progress)
 - **参数**: `id=a1b2c3d4e5f6g7h8`
 - **成功响应 (200 OK)**:
   ```json
@@ -146,42 +157,40 @@
     "updatedAt": 1716180000000
   }
   ```
+  或 `{ "time": 0 }`（无记录时）
 
-### 4.3 最近播放历史 (GET /api/progress/recent)
+### 4.3 最近播放历史 (GET /personal/history)
 - **成功响应 (200 OK)**:
   ```json
   [
     {
-      "mediaId": "a1b2c3d4e5f6g7h8",
+      "id": "a1b2c3d4e5f6g7h8",
+      "name": "Inception.2010",
+      "kind": "video",
+      "shareLabel": "电影",
       "time": 125.4,
-      "updatedAt": 1716180000000,
-      "meta": {
-        "name": "Inception.2010",
-        "kind": "video",
-        "shareLabel": "电影"
-      }
+      "updatedAt": 1716180000000
     }
   ]
   ```
 
-### 4.4 收藏夹操作 (GET/POST/DELETE /api/favorites)
-- **POST 请求**: `{ "mediaId": "a1b2c3d4e5f6g7h8" }`
-- **DELETE 请求**: `/api/favorites/a1b2c3d4e5f6g7h8`
+### 4.4 收藏夹操作 (GET/POST/DELETE /personal/favorites)
+- **POST 请求**: `{ "id": "a1b2c3d4e5f6g7h8" }`
+- **DELETE 请求**: body `{ "id": "a1b2c3d4e5f6g7h8" }`
 - **GET 响应 (200 OK)**:
-  ```json
-  [
-    {
-      "mediaId": "a1b2c3d4e5f6g7h8",
-      "createdAt": 1716180000000
-    }
-  ]
-  ```
+  返回完整的 `MediaItem[]`（Join `media_items` 表）
 
 ---
 
-## 5. 日志与运维 (Maintenance)
+## 5. 健康检查
 
-### 5.1 前端日志上报 (POST /api/log)
+### 5.1 Ping (GET /ping)
+- **安全级**: 开放
+- **成功响应 (200 OK)**: `pong`
+
+## 6. 日志与运维 (Maintenance)
+
+### 6.1 前端日志上报 (POST /log) — 未实现
 - **安全级**: 需 Session 鉴权
 - **请求 Payload**:
   ```json

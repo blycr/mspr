@@ -3,6 +3,12 @@
 > 对应 URS §4  
 > 负责 SQLite 物理表结构、索引优化、全量扫描数据入库策略和轻量级 DAO 封装
 
+> [!NOTE]
+> 本文档为设计规格。当前实际实现采用了简化版本：
+> - `media_items` 表字段名为 camelCase（`relPath`, `shareLabel`, `modTime`, `coverId`, `lyricsId`），字幕以 JSON 字符串存储在 `subtitles` 字段中，未使用独立的 `subtitles` 表
+> - `playback_progress` 和 `favorites` 表结构基本一致
+> - 未实现 `scan_meta` 表
+
 ---
 
 ## 1. 数据库选型与配置

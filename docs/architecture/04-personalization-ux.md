@@ -36,11 +36,11 @@ graph TD
 见 `07-database-schema.md` 中的 `playback_progress` 表，记录 `mediaId`、`time` (秒) 和 `updatedAt`。
 
 **播放进度上报流程**:
-- 客户端播放器每 5 秒发送一次 `POST /api/progress`，携带 `{ mediaId: string, time: number }`。
+- 客户端播放器每 5 秒发送一次 `POST /personal/progress`，携带 `{ id: string, time: number }`。
 - 如果播放到媒体总时长的 95% 以上，服务端和客户端均视为“已播放完”，在进度表中清理该记录，以防历史面板被已看过的视频占满，但更新 `updatedAt` 以保留历史足迹。
 
 **历史记录恢复逻辑**:
-- 当客户端打开某个媒体时，调用 `GET /api/progress?id=xxx`。
+- 当客户端打开某个媒体时，调用 `GET /personal/progress?id=xxx`。
 - 若进度存在（如上次看至 `120.5` 秒），前端播放器初始化时自动 `currentTime = 120.5`，并在界面弹出提示 Toast/按钮：“已为您自动跳转到上次播放位置 {120.5}”。
 
 ---
@@ -54,9 +54,9 @@ graph TD
 - 状态在 SQLite 中持久化，支持跨设备同步。
 
 **接口约定**:
-- `POST /api/favorites` 携带 `{ mediaId: string }`
-- `DELETE /api/favorites/{mediaId}` 移除收藏
-- `GET /api/favorites` 获取全部收藏，通过 Join 查询 `media_items` 表，返回完整的分类列表。
+- `POST /personal/favorites` 携带 `{ id: string }`
+- `DELETE /personal/favorites` body 携带 `{ id: string }` 移除收藏
+- `GET /personal/favorites` 获取全部收藏，通过 Join 查询 `media_items` 表，返回完整的 `MediaItem[]`。
 
 ---
 

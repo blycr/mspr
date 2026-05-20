@@ -149,7 +149,7 @@ m4a → audio/mp4
 **视频转码 FFmpeg 命令模板**:
 ```
 ffmpeg
-  -ss {offset}                          # 起始偏移（秒）
+  -ss {offset}                          # 起始偏移（秒），音频时放在 -i 之前（input seeking）
   {hwAccelInputFlags}                   # 硬件解码参数（可选）
   -i "{inputPath}"                      # 输入文件
   -map 0:v:0 -map 0:a:0                 # 选取第一个视频流和音频流
@@ -160,22 +160,28 @@ ffmpeg
   pipe:1                                # 输出到 stdout
 ```
 
+**重要（Windows）：** Bun 的 `ReadableStream` + HTTP Response 在 Windows 上存在二进制损坏问题（数据被替换为 `0xEFBFBD`）。实际实现中，FFmpeg stdout 先完整收集到 `ArrayBuffer`，再构造 `Response`。这增加了内存占用，但避免了数据损坏。
+
 **视频编码参数决策**:
 ```
 if (needVideoTranscode):
   if (hwAccel === "nvenc"):
-    -c:v h264_nvenc -preset p4 -crf 23
+    -c:v h264_nvenc -preset p4 -cq 23
   elif (hwAccel === "qsv"):
     -c:v h264_qsv -preset medium
   elif (hwAccel === "vaapi"):
     -c:v h264_vaapi
   elif (hwAccel === "videotoolbox"):
     -c:v h264_videotoolbox -q:v 65
+  elif (hwAccel === "amf"):
+    -c:v h264_amf
   else:
     -c:v libx264 -preset veryfast -crf 23
 else:
-  -c:v copy                              # 视频流直通
+  -c:v copy                              # 视频流直通（包括 remux 场景）
 ```
+
+**注意：** `remux` 策略（容器不兼容但编解码器兼容，如 MKV→MP4）**不触发重新编码**，直接 `-c:v copy -c:a copy` 换容器即可。
 
 **音频编码参数决策**:
 ```
@@ -197,14 +203,10 @@ ffmpeg
 **进程生命周期管理**:
 ```
 1. Bun.spawn() 启动 FFmpeg，获取 subprocess 对象
-2. subprocess.stdout → ReadableStream → HTTP Response body
-3. 监听客户端连接关闭 (AbortSignal):
-   → subprocess.kill("SIGTERM")
-   → 等待 500ms
-   → 若未退出则 subprocess.kill("SIGKILL")
+2. subprocess.stdout → ArrayBuffer（Windows 下避免 ReadableStream 二进制损坏）
+3. 构造 HTTP Response(ArrayBuffer)
 4. 监听 subprocess.exited:
-   → 退出码 != 0 则记录错误日志
-5. 从 ConcurrencyGuard 释放槽位
+   → 退出码 != 0 或 stderr 包含 Error 则记录错误日志
 ```
 
 **响应头**:
@@ -230,10 +232,10 @@ X-MSP-Transcode: active
 flowchart TD
     A["启动时调用 ffmpeg -hwaccels"] --> B{"解析可用加速器列表"}
     B --> C["逐个验证编码器可用性"]
-    C --> D["ffmpeg -f lavfi -i nullsrc -t 1 -c:v h264_nvenc -f null -"]
+    C --> D["ffmpeg -f lavfi -i testsrc=duration=1:size=320x240:rate=1 -c:v h264_nvenc -f null -"]
     D -->|成功| E["标记 nvenc 可用"]
     D -->|失败| F["跳过, 尝试下一个"]
-    F --> G["ffmpeg -f lavfi -i nullsrc -t 1 -c:v h264_qsv -f null -"]
+    F --> G["ffmpeg -f lavfi -i testsrc=duration=1:size=320x240:rate=1 -c:v h264_qsv -f null -"]
     G -->|成功| H["标记 qsv 可用"]
     G -->|失败| I["继续下一个..."]
     I --> J["最终回退: libx264 (CPU)"]
@@ -241,6 +243,10 @@ flowchart TD
     H --> K
     J --> K
 ```
+
+**检测实现细节：**
+- 测试输入使用 `testsrc=duration=1:size=320x240:rate=1`（不能使用 64×64，低于 GPU 编码器最小分辨率限制）
+- 验证逻辑：exit code === 0 && stderr 不含 Error/failed && stderr 包含 `frame=`（ffmpeg 进度输出到 stderr，stdout 为空）
 
 **检测优先级顺序**:
 1. **NVENC** (Nvidia GPU) — `h264_nvenc`
@@ -313,7 +319,7 @@ ConcurrencyGuard {
 
 **生成流程**:
 ```
-GET /api/thumbnail?id=xxx
+GET /media/thumbnail?id=xxx
   │
   ├── 1. 计算缓存路径: data/thumbnails/{mediaId}.webp
   │
@@ -348,7 +354,7 @@ GET /api/thumbnail?id=xxx
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Probe: 请求 /api/probe
+    [*] --> Probe: 请求 /media/probe
     Probe --> DirectPlay: strategy=direct
     Probe --> Transcode: strategy=transcode
     DirectPlay --> Playing: 成功

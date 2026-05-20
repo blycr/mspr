@@ -91,9 +91,11 @@ Run all commands from the repository root unless noted otherwise.
 | Command | Description |
 |---------|-------------|
 | `bun install` | Install dependencies for all workspace packages. |
-| `bun run dev:server` | Start the backend in Bun watch mode (`bun --watch src/index.ts`). |
-| `bun run dev:client` | Start the Vite dev server for the frontend. |
+| `bun run dev` | Start both backend and Vite dev server in one terminal. Cleans previous builds and kills lingering processes first. |
+| `bun run start` | Production mode: build client + start server (serves static files from `packages/client/dist/`). Cleans previous builds and kills lingering processes first. |
 | `bun run build` | Build all workspace packages (`bun --filter "*" build`). For the client this runs `vite build` and outputs to `packages/client/dist/`. |
+| `bun run dev:server` | Start the backend only in Bun watch mode (`bun --watch src/index.ts`). |
+| `bun run dev:client` | Start the Vite dev server only. |
 | `bun run check` | (In `packages/client`) Run `svelte-check` and `tsc` for type checking. |
 
 The server has **no build step** — Bun executes TypeScript directly. The client is the only package that gets bundled.

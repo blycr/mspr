@@ -63,7 +63,7 @@ export class TranscodePipeline {
       args.push('-map', '0:a:0');
     }
 
-    if (probe.needVideoTranscode || probe.strategy === 'remux') {
+    if (probe.needVideoTranscode) {
       if (hw.preferred !== 'cpu') {
         const encoder = hw.encoderMap[hw.preferred];
         args.push('-c:v', encoder);
