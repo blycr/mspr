@@ -3,6 +3,12 @@
 > 对应 URS §2.5  
 > 负责配置项热重载（免重启）、系统设置持久化、前端日志收集
 
+> [!NOTE]
+> 本文档为设计规格。当前实际实现状态：
+> - **ConfigManager** (`config/manager.ts`) 已实现，支持 JSON 配置加载与 `fs.watch` 热重载
+> - **管理 API** (`/config`, `/shares`) 尚未实现，配置需手动编辑 `packages/server/data/config.json`
+> - **前端日志收集** (`/log`) 尚未实现
+
 ---
 
 ## 1. 模块职责边界
