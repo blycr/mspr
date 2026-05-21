@@ -5,8 +5,10 @@ import path from 'node:path';
 const ALLOWED_NAMES = /bun|node|vite/i;
 const PID_FILE = path.join(import.meta.dir, '.pids');
 
+const isQuiet = process.env.MSP_START_QUIET === '1';
+
 function log(msg) {
-  // only print when something actually happens
+  if (isQuiet) return;
   console.log(`[Cleanup] ${msg}`);
 }
 

@@ -57,8 +57,20 @@ if (Bun.file(distIndex).size > 0) {
     return Bun.file(filePath);
   });
 
-  // SPA fallback: unmatched routes serve index.html
-  app.get('*', () => Bun.file(distIndex));
+  // SPA fallback: serve actual static files if they exist, otherwise index.html
+  app.get('*', ({ request }) => {
+    const url = new URL(request.url);
+    const filePath = path.join(distDir, url.pathname);
+    // Path traversal guard
+    if (!filePath.startsWith(distDir)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    const file = Bun.file(filePath);
+    if (file.size > 0) {
+      return file;
+    }
+    return Bun.file(distIndex);
+  });
 }
 
 app.listen(configManager.get().port);

@@ -209,6 +209,9 @@
       <button class="icon-btn" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Menu">
         <Icon name="menu" size={22} />
       </button>
+      <span style="color: var(--accent-color); line-height: 0;">
+        <Icon name="logo" size={22} />
+      </span>
       <span class="logo-text">MSP</span>
       <div class="mobile-search">
         <Icon name="search" size={16} />

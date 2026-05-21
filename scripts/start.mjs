@@ -2,13 +2,13 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'os';
+import { createLogWriter } from './lib/log.mjs';
 
 const PID_FILE = path.join(import.meta.dir, '.pids');
+const LOG_DIR = path.join(import.meta.dir, '../packages/server/data/logs');
 
-const B = '\x1b[1m';
-const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
-const YELLOW = '\x1b[33m';
+const CYAN = '\x1b[36m';
 const RESET = '\x1b[0m';
 
 function getLanIPs() {
@@ -27,35 +27,60 @@ function getLanIPs() {
   return results;
 }
 
-const lanIps = getLanIPs();
+function getServerPort() {
+  try {
+    const configPath = path.join(import.meta.dir, '../packages/server/data/config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return config.port || 3000;
+  } catch {
+    return 3000;
+  }
+}
 
-// Clean up previous builds and lingering processes first
+const lanIps = getLanIPs();
+const port = getServerPort();
+
+process.env.MSP_START_QUIET = '1';
 await import('./cleanup.mjs');
 
-console.log('[Start] Building...');
-const build = spawn('bun', ['run', 'build'], { stdio: 'inherit' });
+// Build
+process.stdout.write('Building... ');
+const build = spawn('bun', ['run', 'build'], { stdio: 'pipe' });
+let buildOutput = '';
+build.stdout.on('data', d => { buildOutput += d.toString(); });
+build.stderr.on('data', d => { buildOutput += d.toString(); });
 await new Promise((resolve) => build.on('exit', resolve));
 
 if (build.exitCode !== 0) {
-  console.error('[Start] Build failed.');
+  console.log('\n' + buildOutput);
+  console.error('Build failed.');
   process.exit(1);
 }
+console.log(`${GREEN}done${RESET}`);
 
-console.log('[Start] Starting server...');
-const server = spawn('bun', ['packages/server/src/index.ts'], {
-  stdio: 'inherit',
-});
-
+// Server
+const serverLogger = createLogWriter('server', LOG_DIR);
+const server = spawn('bun', ['packages/server/src/index.ts'], { stdio: ['inherit', 'pipe', 'pipe'] });
 fs.writeFileSync(PID_FILE, JSON.stringify([server.pid]));
 
-// Print a bold reminder after things settle
-setTimeout(() => {
-  console.log(`\n${YELLOW}>>>${RESET} ${B}Open${RESET}   ${CYAN}http://localhost:3000${RESET}`);
-  if (lanIps.length > 0) {
-    console.log(`${YELLOW}>>>${RESET} ${B}LAN ${RESET}   ${GREEN}http://${lanIps[0]}:3000${RESET}`);
+server.stdout.on('data', d => serverLogger.write(d.toString()));
+server.stderr.on('data', d => {
+  const str = d.toString();
+  serverLogger.write(str);
+  process.stderr.write(str);
+});
+
+server.on('exit', (code) => {
+  if (code !== 0 && code !== null) {
+    console.error(`\nServer crashed (exit ${code}). Recent logs:\n`);
+    console.error(serverLogger.tail(30));
   }
-  console.log(`${YELLOW}<<<${RESET}\n`);
-}, 2000);
+});
+
+console.log(`\n${CYAN}http://localhost:${port}${RESET}`);
+if (lanIps.length > 0) {
+  console.log(`${CYAN}http://${lanIps[0]}:${port}${RESET}`);
+}
 
 function cleanup(signal) {
   console.log(`\n[Start] Received ${signal}, shutting down...`);
