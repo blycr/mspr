@@ -10,6 +10,7 @@ const DEFAULT_CONFIG: AppConfig = {
   shares: [],
   port: API_DEFAULT_PORT,
   security: {
+    pin: '',
     allowedIps: [],
     blockedIps: []
   },

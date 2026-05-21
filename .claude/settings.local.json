@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/setup-package-manager.js --detect)",
+      "Bash(grep -v \"^$\")",
+      "Bash(bun run *)",
+      "Bash(curl -s http://localhost:3000/ping)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" http://localhost:3000/media)",
+      "Bash(curl -s -w \"\\\\n%{http_code}\" -X POST -H \"X-MSP-PIN: 1234\" http://localhost:3000/auth/verify)",
+      "Bash(pkill -f \"bun.*server/src/index.ts\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/media)",
+      "Bash(curl -s -X POST -H \"X-MSP-PIN: wrong\" -o /dev/null -w \"%{http_code}\" http://localhost:3000/auth/verify)",
+      "Bash(curl -s -X POST -H \"X-MSP-PIN: 1234\" -o /dev/null -w \"%{http_code}\" http://localhost:3000/auth/verify)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/ping)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: wrong\" http://localhost:3000/media)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: 1234\" http://localhost:3000/media)",
+      "Bash(curl -s -X POST -o /dev/null -w \"%{http_code}\" http://localhost:3000/auth/verify)",
+      "Bash(curl -s -X POST -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: wrong\" http://localhost:3000/auth/verify)",
+      "Bash(curl -s http://localhost:3000/media)",
+      "Bash(curl -s http://localhost:3000/media -v)",
+      "Bash(curl -s -H \"X-MSP-PIN: wrong\" http://localhost:3000/media -v)",
+      "Bash(node *)",
+      "Bash(curl -s http://localhost:3000/ping -v)",
+      "Bash(curl -s http://localhost:3000/media -D -)",
+      "Bash(curl -s http://localhost:3000/media -H \"X-MSP-PIN: wrong\" -D -)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3002/test)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: wrong\" http://localhost:3002/test)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: 1234\" http://localhost:3002/test)",
+      "Bash(pkill -f \"test-index\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"Accept: text/html\" http://localhost:3000/history)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -H \"X-MSP-PIN: 1999\" http://localhost:3000/media)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/history)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/assets/index-Dja-fB2q.js)",
+      "Bash(git *)"
+    ]
+  },
+  "skills": [
+    "typescript-reviewer",
+    "security-reviewer",
+    "svelte-reviewer",
+    "performance-optimizer"
+  ]
+}

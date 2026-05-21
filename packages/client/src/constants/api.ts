@@ -13,4 +13,5 @@ export const ENDPOINTS = {
   PROGRESS: `${API_BASE}/personal/progress`,
   HISTORY: `${API_BASE}/personal/history`,
   FAVORITES: `${API_BASE}/personal/favorites`,
+  AUTH_VERIFY: `${API_BASE}/auth/verify`,
 };

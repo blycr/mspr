@@ -34,3 +34,13 @@ data/
 .antigravitycli/
 .playwright-mcp/
 scripts/.pids
+
+# Environment
+.env
+.env.*
+
+# Cache
+.cache/
+
+# Coverage
+coverage/

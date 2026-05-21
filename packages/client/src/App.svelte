@@ -11,8 +11,9 @@
   import VideoPlayer from './components/player/VideoPlayer.svelte';
   import ImageViewer from './components/ImageViewer.svelte';
   import MediaCard from './components/MediaCard.svelte';
+  import PinModal from './components/PinModal.svelte';
   import Icon from './components/Icon.svelte';
-  import { api } from './lib/api.js';
+  import { api, setPin } from './lib/api.js';
   import { playlistManager } from './lib/player/playlist.js';
   import { matchesQuery } from './lib/search.js';
   import { initTheme, applyTheme, saveTheme } from './lib/theme.js';
@@ -34,6 +35,11 @@
   let sidebarOpen = $state(false);
   let playMode = $state(playlistManager.mode);
   let isAutoPlay = $state(false);
+
+  /* PIN auth state */
+  let pinModalOpen = $state(false);
+  let pinError = $state('');
+  let authChecked = $state(false);
 
   /* Image viewer state */
   let imageItems = $state<MediaItem[]>([]);
@@ -104,7 +110,9 @@
   });
 
   $effect(() => {
-    fetchMedia();
+    if (!authChecked) {
+      checkAuth();
+    }
   });
 
   $effect(() => {
@@ -135,6 +143,47 @@
     forceLayout = isMobile ? 'desktop' : 'mobile';
   }
 
+  async function checkAuth() {
+    try {
+      const savedPin = localStorage.getItem('msp-pin');
+      if (savedPin) {
+        const result = await api.verifyPin(savedPin);
+        if (result.valid) {
+          setPin(savedPin);
+          authChecked = true;
+          fetchMedia();
+          return;
+        }
+        localStorage.removeItem('msp-pin');
+      }
+      // Try without PIN to see if server requires one
+      const res = await fetch(api.baseUrl + '/media', { method: 'HEAD' });
+      if (res.status === 401) {
+        pinModalOpen = true;
+      } else {
+        authChecked = true;
+        fetchMedia();
+      }
+    } catch (e) {
+      authChecked = true;
+      fetchMedia();
+    }
+  }
+
+  async function handlePinSubmit(pin: string) {
+    pinError = '';
+    const result = await api.verifyPin(pin);
+    if (result.valid) {
+      setPin(pin);
+      localStorage.setItem('msp-pin', pin);
+      pinModalOpen = false;
+      authChecked = true;
+      fetchMedia();
+    } else {
+      pinError = 'Invalid PIN. Please try again.';
+    }
+  }
+
   async function fetchMedia() {
     try {
       loading = true;
@@ -144,7 +193,13 @@
       ]);
       items = mediaRes;
       history = historyRes;
-    } catch (e) {
+    } catch (e: any) {
+      if (e.message?.includes('401')) {
+        pinError = 'Session expired. Please enter PIN again.';
+        pinModalOpen = true;
+        localStorage.removeItem('msp-pin');
+        setPin('');
+      }
       console.error('Failed to fetch media:', e);
     } finally {
       loading = false;
@@ -365,6 +420,13 @@
       currentIndex={imageIndex}
       onClose={() => imageViewerOpen = false}
       onNavigate={(idx) => imageIndex = idx}
+    />
+  {/if}
+
+  {#if pinModalOpen}
+    <PinModal
+      onSubmit={handlePinSubmit}
+      error={pinError}
     />
   {/if}
 </main>

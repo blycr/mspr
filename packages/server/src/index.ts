@@ -5,6 +5,7 @@ import os from 'os';
 import { configManager } from './config/manager.js';
 import { mediaRoutes } from './routes/media.js';
 import { personalRoutes } from './routes/personal.js';
+import { setupSecurity } from './security/middleware.js';
 import { hwAccelDetector } from './streaming/hw-accel-detector.js';
 import { scannerEngine } from './scanner/engine.js';
 import { LOG_PREFIX, ANSI_CODES, NETWORK_FILTER } from './constants/index.js';
@@ -34,8 +35,23 @@ function getLanIPs(): string[] {
 })();
 
 const app = new Elysia()
-  .use(cors())
-  .get('/ping', () => 'pong')
+  .use(cors());
+
+// Setup security middleware directly on the app instance
+setupSecurity(app);
+
+app.get('/ping', () => 'pong')
+  .post('/auth/verify', ({ request, set }) => {
+    const pin = request.headers.get('X-MSP-PIN');
+    const config = configManager.get();
+    if (config.security.pin && config.security.pin.length > 0) {
+      if (!pin || pin !== config.security.pin) {
+        set.status = 401;
+        return { valid: false };
+      }
+    }
+    return { valid: true };
+  })
   .use(mediaRoutes)
   .use(personalRoutes);
 
