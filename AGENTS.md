@@ -261,14 +261,12 @@ The client hardcodes the server base URL to `http://localhost:3000`.
 
 ## Security Considerations (Current State)
 
-- **IP filtering** exists in `security/middleware.ts` but is not integrated into the main Elysia app yet.
-- **PIN** logic reads the `X-MSP-PIN` header in some planned routes but is not enforced on existing endpoints.
+- **PIN authentication** — Enforced via `security/middleware.ts` on all API endpoints. Supports `X-MSP-PIN` header or `?pin=` query parameter (for media streams). Static files and SPA routes are exempt. PIN is configured in `config.json` under `security.pin`; leave empty to disable.
+- **IP filtering** — `allowedIps` and `blockedIps` are enforced in the same middleware. Empty `allowedIps` means allow all.
 - **Path sandbox** — `resolveMediaPath()` validates that the resolved path stays inside the share root. Returns `null` if traversal is detected.
 - **No HTTPS** — intended for trusted LAN use only.
 - **No rate limiting** implemented yet.
-- **No auth tokens / JWT** yet.
-
-> The architecture docs describe a more complete security model (CIDR, hashed PIN, rate limiting, JWT). The actual implementation is partially complete. Do not assume those features are wired up.
+- **No auth tokens / JWT** — PIN is the only auth mechanism.
 
 ---
 

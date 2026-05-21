@@ -39,9 +39,16 @@ Edit `packages/server/data/config.json` to add your media directories:
     { "label": "Movies", "path": "D:/Movies" },
     { "label": "Music", "path": "D:/Music" }
   ],
-  "port": 3000
+  "port": 3000,
+  "security": {
+    "pin": "",
+    "allowedIps": [],
+    "blockedIps": []
+  }
 }
 ```
+
+**PIN Authentication** (optional): Set `"pin": "your-pin"` to require a PIN for access. Leave empty to disable.
 
 ### 2. Development Mode
 
